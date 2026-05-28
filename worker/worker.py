@@ -123,4 +123,7 @@ def iniciar_worker():
 
 if __name__ == "__main__":
     # Permite ejecutar este archivo directo: python worker/worker.py
-    iniciar_worker()
+    try:
+        iniciar_worker()
+    except KeyboardInterrupt:
+        print(f"\n[{ID_WORKER}] worker detenido manualmente")

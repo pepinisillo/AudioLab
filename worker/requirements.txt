@@ -1,0 +1,2 @@
+# Cliente de Python para leer/escribir tareas en Redis.
+redis
