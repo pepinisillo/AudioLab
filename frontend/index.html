@@ -95,13 +95,15 @@
 
             <div class="pila-vista-previa">
               <div class="encabezado-vista-previa">
-                <h3>Audio original</h3>
+                <h3>Audio original y vista previa de onda</h3>
                 <span id="etiquetaDuracion">00:00</span>
               </div>
-              <audio id="vistaAudio" controls preload="metadata"></audio>
+              <audio id="vistaAudio" preload="metadata" aria-hidden="true"></audio>
 
-              <div class="contenedor-onda">
+              <div class="contenedor-onda" role="button" tabindex="0" aria-label="Reproductor de audio original por onda">
                 <canvas id="lienzoOnda" width="900" height="220" aria-label="Onda del audio cargado"></canvas>
+                <button id="botonOnda" class="boton-onda" type="button" disabled>play</button>
+                <span id="tiempoOnda" class="tiempo-onda">00:00 / 00:00</span>
               </div>
             </div>
           </article>

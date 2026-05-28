@@ -52,6 +52,10 @@ const AudioLab = (() => {
     tipoArchivo: document.querySelector("[data-tipo-archivo]"),
     reproductorAudio: document.querySelector("#vistaAudio"),
     etiquetaDuracion: document.querySelector("#etiquetaDuracion"),
+    contenedorOnda: document.querySelector(".contenedor-onda"),
+    lienzoOnda: document.querySelector("#lienzoOnda"),
+    botonOnda: document.querySelector("#botonOnda"),
+    tiempoOnda: document.querySelector("#tiempoOnda"),
     vistaPrevia: document.querySelector(".pila-vista-previa"),
     botonProcesar: document.querySelector("#botonProcesar"),
     ayudaEnvio: document.querySelector("#ayudaEnvio"),
@@ -87,12 +91,16 @@ const AudioLab = (() => {
     eventosTrabajos: new Map(),
     intervaloTrabajos: null,
     intervaloSistema: null,
+    audioDecodificado: null,
+    versionOnda: 0,
     errorSistemaReportado: false
   };
 
   function iniciar() {
     // Orden de arranque: eventos, estado visual inicial, historial local y luego Redis.
     conectarEventos();
+    dibujarMensajeOnda("Carga un audio para ver su onda");
+    actualizarEstadoReproductorOnda();
     actualizarEstadoBoton();
     renderizarHistorial();
     cargarTrabajosRedis();
@@ -158,6 +166,27 @@ const AudioLab = (() => {
       elementos.etiquetaDuracion.textContent = formatearDuracion(
         elementos.reproductorAudio.duration
       );
+      actualizarEstadoReproductorOnda();
+    });
+
+    elementos.reproductorAudio.addEventListener("timeupdate", actualizarEstadoReproductorOnda);
+    elementos.reproductorAudio.addEventListener("play", actualizarEstadoReproductorOnda);
+    elementos.reproductorAudio.addEventListener("pause", actualizarEstadoReproductorOnda);
+    elementos.reproductorAudio.addEventListener("ended", actualizarEstadoReproductorOnda);
+
+    elementos.botonOnda?.addEventListener("click", (evento) => {
+      evento.stopPropagation();
+      alternarReproduccionOnda();
+    });
+
+    elementos.contenedorOnda?.addEventListener("click", manejarClickOnda);
+    elementos.contenedorOnda?.addEventListener("keydown", manejarTeclaOnda);
+    window.addEventListener("resize", () => {
+      if (estado.audioDecodificado) {
+        pintarOndaAudio(estado.audioDecodificado);
+      } else {
+        dibujarMensajeOnda(estado.archivo ? "Leyendo onda..." : "Carga un audio para ver su onda");
+      }
     });
 
     elementos.botonProcesar.addEventListener("click", enviarTrabajo);
@@ -181,6 +210,7 @@ const AudioLab = (() => {
 
     estado.archivo = archivo;
     estado.urlAudio = URL.createObjectURL(archivo);
+    estado.audioDecodificado = null;
 
     elementos.reproductorAudio.src = estado.urlAudio;
     elementos.reproductorAudio.load();
@@ -193,8 +223,333 @@ const AudioLab = (() => {
     elementos.tipoArchivo.textContent = archivo.type || inferirTipoPorNombre(archivo.name);
     elementos.etiquetaDuracion.textContent = "00:00";
 
+    actualizarEstadoReproductorOnda();
+    dibujarOndaArchivo(archivo);
     actualizarEstadoBoton();
     agregarLog(`[interfaz] archivo cargado: ${archivo.name}`);
+  }
+
+  function manejarClickOnda(evento) {
+    if (!estado.archivo || !elementos.lienzoOnda) {
+      return;
+    }
+
+    const audio = elementos.reproductorAudio;
+    const duracion = audio.duration;
+
+    if (Number.isFinite(duracion) && duracion > 0) {
+      const rectangulo = elementos.lienzoOnda.getBoundingClientRect();
+      const posicion = Math.max(0, Math.min(1, (evento.clientX - rectangulo.left) / rectangulo.width));
+      audio.currentTime = posicion * duracion;
+      actualizarEstadoReproductorOnda();
+    }
+
+    if (audio.paused) {
+      reproducirAudioOnda();
+    }
+  }
+
+  function manejarTeclaOnda(evento) {
+    if (evento.key !== "Enter" && evento.key !== " ") {
+      return;
+    }
+
+    evento.preventDefault();
+    alternarReproduccionOnda();
+  }
+
+  async function reproducirAudioOnda() {
+    if (!estado.archivo) {
+      return;
+    }
+
+    try {
+      await elementos.reproductorAudio.play();
+    } catch (error) {
+      agregarLog(`[error] no se pudo reproducir el audio: ${error.message}`);
+    }
+  }
+
+  function alternarReproduccionOnda() {
+    if (!estado.archivo) {
+      return;
+    }
+
+    if (elementos.reproductorAudio.paused) {
+      reproducirAudioOnda();
+      return;
+    }
+
+    elementos.reproductorAudio.pause();
+  }
+
+  function obtenerProgresoAudio() {
+    const duracion = elementos.reproductorAudio.duration;
+
+    if (!Number.isFinite(duracion) || duracion <= 0) {
+      return 0;
+    }
+
+    return Math.max(0, Math.min(1, elementos.reproductorAudio.currentTime / duracion));
+  }
+
+  function actualizarEstadoReproductorOnda() {
+    const audio = elementos.reproductorAudio;
+    const tieneArchivo = Boolean(estado.archivo);
+    const estaReproduciendo = tieneArchivo && !audio.paused;
+    const duracion = Number.isFinite(audio.duration) ? audio.duration : 0;
+    const tiempoActual = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+
+    if (elementos.botonOnda) {
+      elementos.botonOnda.disabled = !tieneArchivo;
+      elementos.botonOnda.textContent = estaReproduciendo ? "pause" : "play";
+      elementos.botonOnda.setAttribute(
+        "aria-label",
+        estaReproduciendo ? "Pausar audio original" : "Reproducir audio original"
+      );
+    }
+
+    elementos.contenedorOnda?.classList.toggle("esta-reproduciendo", estaReproduciendo);
+
+    if (elementos.tiempoOnda) {
+      elementos.tiempoOnda.textContent = `${formatearDuracion(tiempoActual)} / ${formatearDuracion(duracion)}`;
+    }
+
+    if (estado.audioDecodificado) {
+      pintarOndaAudio(estado.audioDecodificado);
+    }
+  }
+
+  function prepararLienzoOnda() {
+    const lienzo = elementos.lienzoOnda;
+
+    if (!lienzo) {
+      return null;
+    }
+
+    const rectangulo = lienzo.getBoundingClientRect();
+    const escala = window.devicePixelRatio || 1;
+    const anchoCss = Math.max(320, Math.floor(rectangulo.width || 900));
+    const altoCss = Math.max(140, Math.floor(rectangulo.height || 160));
+    const anchoReal = Math.floor(anchoCss * escala);
+    const altoReal = Math.floor(altoCss * escala);
+
+    if (lienzo.width !== anchoReal || lienzo.height !== altoReal) {
+      lienzo.width = anchoReal;
+      lienzo.height = altoReal;
+    }
+
+    const contexto = lienzo.getContext("2d");
+    contexto.setTransform(escala, 0, 0, escala, 0, 0);
+
+    return {
+      contexto,
+      ancho: anchoCss,
+      alto: altoCss
+    };
+  }
+
+  function pintarFondoOnda(contexto, ancho, alto) {
+    const fondo = contexto.createLinearGradient(0, 0, ancho, alto);
+    fondo.addColorStop(0, "rgba(248, 248, 245, 1)");
+    fondo.addColorStop(0.48, "rgba(236, 238, 237, 0.96)");
+    fondo.addColorStop(1, "rgba(228, 236, 235, 1)");
+
+    contexto.fillStyle = fondo;
+    contexto.fillRect(0, 0, ancho, alto);
+
+    const brilloRosa = contexto.createRadialGradient(
+      ancho * 0.16,
+      alto * 0.24,
+      0,
+      ancho * 0.16,
+      alto * 0.24,
+      ancho * 0.48
+    );
+    brilloRosa.addColorStop(0, "rgba(161, 102, 255, 0.24)");
+    brilloRosa.addColorStop(1, "rgba(161, 102, 255, 0)");
+    contexto.fillStyle = brilloRosa;
+    contexto.fillRect(0, 0, ancho, alto);
+
+    const brilloAzul = contexto.createRadialGradient(
+      ancho * 0.84,
+      alto * 0.78,
+      0,
+      ancho * 0.84,
+      alto * 0.78,
+      ancho * 0.52
+    );
+    brilloAzul.addColorStop(0, "rgba(109, 184, 201, 0.30)");
+    brilloAzul.addColorStop(1, "rgba(109, 184, 201, 0)");
+    contexto.fillStyle = brilloAzul;
+    contexto.fillRect(0, 0, ancho, alto);
+
+    contexto.strokeStyle = "rgba(111, 106, 102, 0.18)";
+    contexto.lineWidth = 1;
+
+    for (let linea = 1; linea < 4; linea += 1) {
+      const y = (alto / 4) * linea;
+      contexto.beginPath();
+      contexto.moveTo(0, y);
+      contexto.lineTo(ancho, y);
+      contexto.stroke();
+    }
+  }
+
+  function dibujarMensajeOnda(mensaje) {
+    const lienzo = prepararLienzoOnda();
+
+    if (!lienzo) {
+      return;
+    }
+
+    const { contexto, ancho, alto } = lienzo;
+
+    pintarFondoOnda(contexto, ancho, alto);
+    contexto.fillStyle = "rgba(22, 20, 20, 0.62)";
+    contexto.font = "700 12px monospace";
+    contexto.letterSpacing = "0.08em";
+    contexto.textAlign = "center";
+    contexto.textBaseline = "middle";
+    contexto.fillText(mensaje.toUpperCase(), ancho / 2, alto / 2);
+  }
+
+  async function dibujarOndaArchivo(archivo) {
+    const versionActual = estado.versionOnda + 1;
+    estado.versionOnda = versionActual;
+    dibujarMensajeOnda("Leyendo onda...");
+
+    try {
+      const ConstructorAudioContext = window.AudioContext || window.webkitAudioContext;
+
+      if (!ConstructorAudioContext || !archivo.arrayBuffer) {
+        throw new Error("Este navegador no puede decodificar el audio para dibujar la onda.");
+      }
+
+      const datosAudio = await archivo.arrayBuffer();
+
+      if (versionActual !== estado.versionOnda) {
+        return;
+      }
+
+      const contextoAudio = new ConstructorAudioContext();
+
+      try {
+        const audioDecodificado = await decodificarAudio(contextoAudio, datosAudio);
+
+        if (versionActual === estado.versionOnda) {
+          estado.audioDecodificado = audioDecodificado;
+          pintarOndaAudio(audioDecodificado);
+          actualizarEstadoReproductorOnda();
+        }
+      } finally {
+        if (typeof contextoAudio.close === "function") {
+          contextoAudio.close();
+        }
+      }
+    } catch (error) {
+      console.warn("No se pudo dibujar la onda:", error);
+
+      if (versionActual === estado.versionOnda) {
+        estado.audioDecodificado = null;
+        dibujarMensajeOnda("No se pudo dibujar la onda");
+      }
+    }
+  }
+
+  function decodificarAudio(contextoAudio, datosAudio) {
+    return new Promise((resolve, reject) => {
+      const datos = datosAudio.slice(0);
+      const promesa = contextoAudio.decodeAudioData(datos, resolve, reject);
+
+      if (promesa && typeof promesa.then === "function") {
+        promesa.then(resolve).catch(reject);
+      }
+    });
+  }
+
+  function pintarOndaAudio(audioDecodificado) {
+    const lienzo = prepararLienzoOnda();
+
+    if (!lienzo) {
+      return;
+    }
+
+    const { contexto, ancho, alto } = lienzo;
+    const canales = Array.from({ length: audioDecodificado.numberOfChannels }, (_, indice) => {
+      return audioDecodificado.getChannelData(indice);
+    });
+
+    pintarFondoOnda(contexto, ancho, alto);
+
+    const margen = 18;
+    const centroY = alto / 2;
+    const altoUtil = alto - margen * 2;
+    const cantidadBarras = Math.min(220, Math.max(64, Math.floor(ancho / 5)));
+    const muestrasPorBarra = Math.max(1, Math.floor(audioDecodificado.length / cantidadBarras));
+    const pasoRevision = Math.max(1, Math.floor(muestrasPorBarra / 42));
+    const anchoBarra = Math.max(2, (ancho - margen * 2) / cantidadBarras - 2);
+
+    const colorOnda = contexto.createLinearGradient(0, margen, 0, alto - margen);
+    colorOnda.addColorStop(0, "rgba(161, 102, 255, 0.96)");
+    colorOnda.addColorStop(0.52, "rgba(240, 134, 198, 0.90)");
+    colorOnda.addColorStop(1, "rgba(109, 184, 201, 0.96)");
+
+    const barras = [];
+
+    for (let barra = 0; barra < cantidadBarras; barra += 1) {
+      const inicio = barra * muestrasPorBarra;
+      const fin = Math.min(inicio + muestrasPorBarra, audioDecodificado.length);
+      let pico = 0;
+
+      for (let muestra = inicio; muestra < fin; muestra += pasoRevision) {
+        canales.forEach((canal) => {
+          pico = Math.max(pico, Math.abs(canal[muestra] || 0));
+        });
+      }
+
+      const altura = Math.min(altoUtil, Math.max(2, pico * altoUtil));
+      const x = margen + barra * ((ancho - margen * 2) / cantidadBarras);
+      const y = centroY - altura / 2;
+
+      barras.push({
+        x,
+        y,
+        ancho: anchoBarra,
+        altura
+      });
+    }
+
+    contexto.fillStyle = "rgba(22, 20, 20, 0.16)";
+    barras.forEach((barra) => {
+      contexto.fillRect(barra.x, barra.y, barra.ancho, barra.altura);
+    });
+
+    contexto.save();
+    contexto.beginPath();
+    contexto.rect(margen, 0, (ancho - margen * 2) * obtenerProgresoAudio(), alto);
+    contexto.clip();
+    contexto.fillStyle = colorOnda;
+
+    barras.forEach((barra) => {
+      contexto.fillRect(barra.x, barra.y, barra.ancho, barra.altura);
+    });
+
+    contexto.restore();
+
+    contexto.strokeStyle = "rgba(22, 20, 20, 0.22)";
+    contexto.beginPath();
+    contexto.moveTo(margen, centroY);
+    contexto.lineTo(ancho - margen, centroY);
+    contexto.stroke();
+
+    const posicionActual = margen + (ancho - margen * 2) * obtenerProgresoAudio();
+    contexto.strokeStyle = "rgba(22, 20, 20, 0.54)";
+    contexto.lineWidth = 2;
+    contexto.beginPath();
+    contexto.moveTo(posicionActual, margen * 0.7);
+    contexto.lineTo(posicionActual, alto - margen * 0.7);
+    contexto.stroke();
   }
 
   function esAudioAceptado(archivo) {
