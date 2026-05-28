@@ -1,0 +1,1048 @@
+const LaboratorioAudio = (() => {
+  const configuracion = window.ConfiguracionAudioLab || {};
+  const BASE_API = configuracion.baseApi || "http://localhost:8000";
+  const CLAVE_HISTORIAL = "audiolab:historial-trabajos";
+  const CLAVE_PROCESOS_SELECCIONADOS = "audiolab:procesos-seleccionados";
+  const CLAVE_TEMA = "audiolab:tema";
+  const EXTENSIONES_ACEPTADAS = [".wav", ".mp3", ".ogg", ".m4a"];
+  const TIPOS_ACEPTADOS = [
+    "audio/wav",
+    "audio/x-wav",
+    "audio/mpeg",
+    "audio/mp3",
+    "audio/ogg",
+    "audio/mp4",
+    "audio/x-m4a"
+  ];
+
+  const elementos = {
+    zonaArrastre: document.querySelector("#zonaArrastre"),
+    entradaArchivo: document.querySelector("#entradaArchivo"),
+    botonSeleccionarArchivo: document.querySelector("#botonSeleccionarArchivo"),
+    detallesArchivo: document.querySelector("#detallesArchivo"),
+    nombreArchivo: document.querySelector("[data-nombre-archivo]"),
+    tamanoArchivo: document.querySelector("[data-tamano-archivo]"),
+    tipoArchivo: document.querySelector("[data-tipo-archivo]"),
+    vistaAudio: document.querySelector("#vistaAudio"),
+    etiquetaDuracion: document.querySelector("#etiquetaDuracion"),
+    lienzoOnda: document.querySelector("#lienzoOnda"),
+    pilaVistaPrevia: document.querySelector(".pila-vista-previa"),
+    botonProcesar: document.querySelector("#botonProcesar"),
+    ayudaEnvio: document.querySelector("#ayudaEnvio"),
+    tableroTareas: document.querySelector("#tableroTareas"),
+    resumenTrabajo: document.querySelector("#resumenTrabajo"),
+    listaResultados: document.querySelector("#listaResultados"),
+    contadorResultados: document.querySelector("#contadorResultados"),
+    listaRegistros: document.querySelector("#listaRegistros"),
+    botonLimpiarRegistros: document.querySelector("#botonLimpiarRegistros"),
+    listaHistorial: document.querySelector("#listaHistorial"),
+    botonLimpiarHistorial: document.querySelector("#botonLimpiarHistorial"),
+    alternarTema: document.querySelector("#alternarTema"),
+    metricaProcesadores: document.querySelector("#metricaProcesadores"),
+    metricaPendientes: document.querySelector("#metricaPendientes"),
+    metricaEnProceso: document.querySelector("#metricaEnProceso"),
+    metricaCompletadas: document.querySelector("#metricaCompletadas"),
+    metricaErrores: document.querySelector("#metricaErrores")
+  };
+
+  const entradasProcesos = Array.from(document.querySelectorAll(".opcion-proceso input"));
+  const contextoLienzo = elementos.lienzoOnda?.getContext("2d");
+
+  const estado = {
+    archivo: null,
+    urlAudio: null,
+    trabajoActual: null,
+    temporizadores: [],
+    temporizadorConsulta: null,
+    procesadoresActivos: 3,
+    historial: cargarHistorial()
+  };
+
+  function iniciar() {
+    restaurarTema();
+    restaurarProcesosSeleccionados();
+    conectarEventos();
+    dibujarOndaVacia();
+    renderizarHistorial();
+    actualizarEstadoEnvio();
+    actualizarTablero();
+    agregarRegistro("[sistema] interfaz lista");
+  }
+
+  function conectarEventos() {
+    elementos.botonSeleccionarArchivo.addEventListener("click", (evento) => {
+      evento.stopPropagation();
+      elementos.entradaArchivo.click();
+    });
+
+    elementos.entradaArchivo.addEventListener("change", (evento) => {
+      const [archivo] = evento.target.files;
+      if (archivo) {
+        void manejarArchivo(archivo);
+      }
+    });
+
+    elementos.zonaArrastre.addEventListener("click", (evento) => {
+      if (evento.target !== elementos.botonSeleccionarArchivo) {
+        elementos.entradaArchivo.click();
+      }
+    });
+
+    elementos.zonaArrastre.addEventListener("keydown", (evento) => {
+      if (evento.key === "Enter" || evento.key === " ") {
+        evento.preventDefault();
+        elementos.entradaArchivo.click();
+      }
+    });
+
+    ["dragenter", "dragover"].forEach((nombreEvento) => {
+      elementos.zonaArrastre.addEventListener(nombreEvento, (evento) => {
+        evento.preventDefault();
+        elementos.zonaArrastre.classList.add("esta-arrastrando");
+      });
+    });
+
+    ["dragleave", "drop"].forEach((nombreEvento) => {
+      elementos.zonaArrastre.addEventListener(nombreEvento, (evento) => {
+        evento.preventDefault();
+        elementos.zonaArrastre.classList.remove("esta-arrastrando");
+      });
+    });
+
+    elementos.zonaArrastre.addEventListener("drop", (evento) => {
+      const [archivo] = evento.dataTransfer.files;
+      if (archivo) {
+        void manejarArchivo(archivo);
+      }
+    });
+
+    entradasProcesos.forEach((entrada) => {
+      entrada.addEventListener("change", () => {
+        guardarProcesosSeleccionados();
+        actualizarEstadoEnvio();
+      });
+    });
+
+    elementos.vistaAudio.addEventListener("loadedmetadata", () => {
+      elementos.etiquetaDuracion.textContent = formatearDuracion(elementos.vistaAudio.duration);
+    });
+
+    elementos.botonProcesar.addEventListener("click", enviarTrabajo);
+    elementos.botonLimpiarRegistros.addEventListener("click", limpiarRegistros);
+    elementos.botonLimpiarHistorial.addEventListener("click", limpiarHistorial);
+    elementos.alternarTema.addEventListener("change", cambiarTema);
+
+    window.addEventListener("beforeunload", () => {
+      limpiarTemporizadores({ mantenerConsulta: false });
+      if (estado.urlAudio) {
+        URL.revokeObjectURL(estado.urlAudio);
+      }
+    });
+  }
+
+  function restaurarTema() {
+    const temaGuardado = localStorage.getItem(CLAVE_TEMA);
+    const tema = normalizarTema(temaGuardado);
+    document.documentElement.setAttribute("data-tema", tema);
+    elementos.alternarTema.checked = tema === "oscuro";
+  }
+
+  function cambiarTema(evento) {
+    const tema = evento.target.checked ? "oscuro" : "claro";
+    document.documentElement.setAttribute("data-tema", tema);
+    localStorage.setItem(CLAVE_TEMA, tema);
+
+    if (estado.archivo) {
+      void dibujarOndaDesdeArchivo(estado.archivo);
+    } else {
+      dibujarOndaVacia();
+    }
+
+    agregarRegistro(`[interfaz] tema ${tema} activado`);
+  }
+
+  function normalizarTema(valor) {
+    if (valor === "dark" || valor === "oscuro") return "oscuro";
+    return "claro";
+  }
+
+  async function manejarArchivo(archivo) {
+    if (!esAudioAceptado(archivo)) {
+      agregarRegistro(`[interfaz] archivo rechazado: ${archivo.name}`);
+      window.alert("Selecciona un archivo .wav, .mp3, .ogg o .m4a.");
+      return;
+    }
+
+    if (estado.urlAudio) {
+      URL.revokeObjectURL(estado.urlAudio);
+    }
+
+    estado.archivo = archivo;
+    estado.urlAudio = URL.createObjectURL(archivo);
+    elementos.vistaAudio.src = estado.urlAudio;
+    elementos.vistaAudio.load();
+    elementos.pilaVistaPrevia.classList.add("esta-lista");
+    elementos.detallesArchivo.classList.remove("esta-vacio");
+    elementos.nombreArchivo.textContent = archivo.name;
+    elementos.tamanoArchivo.textContent = formatearBytes(archivo.size);
+    elementos.tipoArchivo.textContent = archivo.type || inferirTipoPorNombre(archivo.name);
+    elementos.etiquetaDuracion.textContent = "00:00";
+
+    actualizarEstadoEnvio();
+    agregarRegistro(`[interfaz] archivo cargado: ${archivo.name}`);
+    await dibujarOndaDesdeArchivo(archivo);
+  }
+
+  function esAudioAceptado(archivo) {
+    const nombreMinusculas = archivo.name.toLowerCase();
+    const tieneExtensionAceptada = EXTENSIONES_ACEPTADAS.some((extension) => {
+      return nombreMinusculas.endsWith(extension);
+    });
+
+    return tieneExtensionAceptada || TIPOS_ACEPTADOS.includes(archivo.type);
+  }
+
+  function inferirTipoPorNombre(nombreArchivo) {
+    const nombreMinusculas = nombreArchivo.toLowerCase();
+    if (nombreMinusculas.endsWith(".wav")) return "audio/wav";
+    if (nombreMinusculas.endsWith(".mp3")) return "audio/mpeg";
+    if (nombreMinusculas.endsWith(".ogg")) return "audio/ogg";
+    if (nombreMinusculas.endsWith(".m4a")) return "audio/mp4";
+    return "audio/desconocido";
+  }
+
+  function obtenerProcesosSeleccionados() {
+    return entradasProcesos
+      .filter((entrada) => entrada.checked)
+      .map((entrada) => ({
+        valor: entrada.value,
+        nombre: entrada.dataset.nombreProceso
+      }));
+  }
+
+  function guardarProcesosSeleccionados() {
+    const valoresSeleccionados = obtenerProcesosSeleccionados().map((proceso) => proceso.valor);
+    localStorage.setItem(CLAVE_PROCESOS_SELECCIONADOS, JSON.stringify(valoresSeleccionados));
+  }
+
+  function restaurarProcesosSeleccionados() {
+    const valoresGuardados = leerJson(CLAVE_PROCESOS_SELECCIONADOS, []);
+    const valoresSeleccionados = Array.isArray(valoresGuardados)
+      ? valoresGuardados.map(normalizarValorProceso)
+      : [];
+
+    entradasProcesos.forEach((entrada) => {
+      entrada.checked = valoresSeleccionados.includes(entrada.value);
+    });
+  }
+
+  function normalizarValorProceso(valor) {
+    return valor;
+  }
+
+  function actualizarEstadoEnvio() {
+    const cantidadSeleccionada = obtenerProcesosSeleccionados().length;
+    const puedeEnviar = Boolean(estado.archivo && cantidadSeleccionada > 0);
+    elementos.botonProcesar.disabled = !puedeEnviar;
+
+    if (!estado.archivo) {
+      elementos.ayudaEnvio.textContent = "Carga un archivo y selecciona al menos un proceso.";
+    } else if (cantidadSeleccionada === 0) {
+      elementos.ayudaEnvio.textContent = "Selecciona al menos un proceso para crear tareas.";
+    } else {
+      elementos.ayudaEnvio.textContent = `Listo: se crearán ${cantidadSeleccionada} tareas para los procesadores.`;
+    }
+  }
+
+  async function enviarTrabajo() {
+    if (!estado.archivo) return;
+
+    const procesosSeleccionados = obtenerProcesosSeleccionados();
+    if (procesosSeleccionados.length === 0) return;
+
+    limpiarTemporizadores();
+    elementos.botonProcesar.disabled = true;
+    elementos.botonProcesar.textContent = "enviando trabajo...";
+    agregarRegistro(`[interfaz] creando ${procesosSeleccionados.length} tareas`);
+
+    try {
+      let trabajo;
+
+      try {
+        trabajo = await crearSolicitudTrabajo(estado.archivo, procesosSeleccionados);
+        agregarRegistro(`[servidor] trabajo ${trabajo.id} creado`);
+      } catch (error) {
+        agregarRegistro(`[servidor] ${error.message}`);
+        agregarRegistro("[demo] usando eventos simulados hasta conectar FastAPI");
+        trabajo = crearTrabajoSimulado(estado.archivo, procesosSeleccionados);
+      }
+
+      estado.trabajoActual = trabajo;
+      renderizarTrabajo(trabajo);
+      renderizarResultados();
+      actualizarTablero();
+      guardarHistorial(trabajo);
+
+      if (trabajo.simulado || configuracion.backendEnVivo !== true) {
+        simularEventosTrabajo(trabajo);
+      } else {
+        iniciarConsulta(trabajo.id);
+      }
+    } finally {
+      elementos.botonProcesar.textContent = "procesar audio";
+      actualizarEstadoEnvio();
+    }
+  }
+
+  async function crearSolicitudTrabajo(archivo, procesos) {
+    if (configuracion.backendSimulado === true) {
+      return crearTrabajoSimulado(archivo, procesos);
+    }
+
+    const formulario = new FormData();
+    formulario.append("audio", archivo);
+    formulario.append("procesos", procesos.map((proceso) => proceso.valor).join(","));
+
+    const respuesta = await fetchConTiempo(`${BASE_API}/trabajos`, {
+      method: "POST",
+      body: formulario
+    }, 2500);
+
+    if (!respuesta.ok) {
+      throw new Error(`POST /trabajos respondió ${respuesta.status}`);
+    }
+
+    const carga = await respuesta.json();
+    return normalizarTrabajoBackend(carga, archivo, procesos);
+  }
+
+  async function fetchConTiempo(url, opciones, tiempoMaximoMs) {
+    const controlador = new AbortController();
+    const temporizador = window.setTimeout(() => controlador.abort(), tiempoMaximoMs);
+
+    try {
+      return await fetch(url, {
+        ...opciones,
+        signal: controlador.signal
+      });
+    } catch (error) {
+      if (error.name === "AbortError") {
+        throw new Error(`tiempo agotado al conectar con ${url}`);
+      }
+
+      throw new Error(`no se pudo conectar con ${url}`);
+    } finally {
+      window.clearTimeout(temporizador);
+    }
+  }
+
+  function crearTrabajoSimulado(archivo, procesos) {
+    const idTrabajo = `demo-${Date.now().toString(36)}`;
+    return {
+      id: idTrabajo,
+      nombreArchivo: archivo.name,
+      estado: "pendiente",
+      creadoEn: new Date().toISOString(),
+      simulado: true,
+      tareas: procesos.map((proceso, indice) => ({
+        id: `${idTrabajo}-${indice + 1}`,
+        tipo: proceso.valor,
+        nombre: proceso.nombre,
+        estado: "pendiente",
+        procesador: "-",
+        progreso: 0,
+        urlResultado: null,
+        error: null
+      }))
+    };
+  }
+
+  function normalizarTrabajoBackend(carga, archivo, procesosSeleccionados) {
+    const cargaTrabajo = carga.trabajo || carga;
+    const idTrabajo = String(
+      cargaTrabajo.id_trabajo ||
+      cargaTrabajo.id ||
+      carga.id_trabajo ||
+      `trabajo-${Date.now()}`
+    );
+    const tareasBackend = cargaTrabajo.tareas || carga.tareas || [];
+    const tareasOrigen = tareasBackend.length ? tareasBackend : procesosSeleccionados;
+
+    const tareas = tareasOrigen.map((tarea, indice) => {
+      const valorProceso = normalizarValorProceso(
+        tarea.proceso ||
+        tarea.tipo ||
+        procesosSeleccionados[indice]?.valor ||
+        "proceso_audio"
+      );
+      const nombreProceso =
+        tarea.nombre ||
+        tarea.etiqueta ||
+        procesosSeleccionados.find((proceso) => proceso.valor === valorProceso)?.nombre ||
+        procesosSeleccionados[indice]?.nombre ||
+        "Proceso de audio";
+
+      return {
+        id: String(tarea.id_tarea || tarea.id || `${idTrabajo}-${indice + 1}`),
+        tipo: valorProceso,
+        nombre: nombreProceso,
+        estado: normalizarEstado(tarea.estado || "pendiente"),
+        procesador: tarea.procesador || "-",
+        progreso: limitar(Number(tarea.progreso ?? 0), 0, 100),
+        urlResultado: tarea.url_resultado || tarea.resultado_url || tarea.resultado || null,
+        error: tarea.error || null
+      };
+    });
+
+    return {
+      id: idTrabajo,
+      nombreArchivo: cargaTrabajo.nombre_archivo || carga.nombre_archivo || archivo.name,
+      estado: normalizarEstado(cargaTrabajo.estado || carga.estado || "pendiente"),
+      creadoEn: cargaTrabajo.creado_en || carga.creado_en || new Date().toISOString(),
+      simulado: false,
+      tareas
+    };
+  }
+
+  function simularEventosTrabajo(trabajo) {
+    agregarRegistro(`[audio] trabajo ${trabajo.id} creado para ${trabajo.nombreArchivo}`);
+
+    trabajo.tareas.forEach((tarea, indice) => {
+      const procesador = `procesador-${(indice % estado.procesadoresActivos) + 1}`;
+      const retrasoInicio = 650 + indice * 720;
+
+      programarTemporizador(() => {
+        manejarEventoTiempoReal("tarea_iniciada", {
+          id_tarea: tarea.id,
+          procesador,
+          progreso: 18
+        });
+      }, retrasoInicio);
+
+      [42, 67, 88].forEach((progreso, indiceProgreso) => {
+        programarTemporizador(() => {
+          manejarEventoTiempoReal("tarea_iniciada", {
+            id_tarea: tarea.id,
+            procesador,
+            progreso
+          });
+        }, retrasoInicio + 440 + indiceProgreso * 390);
+      });
+
+      programarTemporizador(() => {
+        manejarEventoTiempoReal("tarea_completada", {
+          id_tarea: tarea.id,
+          procesador,
+          url_resultado: crearUrlResultadoDemo(tarea)
+        });
+      }, retrasoInicio + 1850);
+    });
+  }
+
+  function programarTemporizador(accion, retraso) {
+    const temporizador = window.setTimeout(accion, retraso);
+    estado.temporizadores.push(temporizador);
+  }
+
+  function crearUrlResultadoDemo(tarea) {
+    if (tarea.tipo === "onda") {
+      return "#lienzoOnda";
+    }
+
+    return estado.urlAudio || "#";
+  }
+
+  function manejarEventoTiempoReal(nombreEvento, datos) {
+    if (!estado.trabajoActual) return;
+
+    const idTarea = String(datos.id_tarea || datos.id || "");
+    const tarea = estado.trabajoActual.tareas.find((candidata) => candidata.id === idTarea);
+    if (!tarea) {
+      agregarRegistro(`[eventos] evento ignorado para tarea desconocida: ${idTarea}`);
+      return;
+    }
+
+    if (nombreEvento === "tarea_iniciada") {
+      tarea.estado = "en_proceso";
+      tarea.progreso = limitar(Number(datos.progreso ?? Math.max(tarea.progreso, 20)), 0, 99);
+    }
+
+    if (nombreEvento === "tarea_pendiente") {
+      tarea.estado = "pendiente";
+      tarea.progreso = limitar(Number(datos.progreso ?? tarea.progreso), 0, 99);
+    }
+
+    if (nombreEvento === "tarea_completada") {
+      tarea.estado = "completada";
+      tarea.progreso = 100;
+      tarea.urlResultado =
+        datos.url_resultado ||
+        datos.resultado ||
+        tarea.urlResultado ||
+        crearUrlResultadoDemo(tarea);
+      tarea.error = null;
+    }
+
+    if (nombreEvento === "tarea_error") {
+      tarea.estado = "error";
+      tarea.progreso = 100;
+      tarea.error = datos.error || "La tarea falló durante el procesamiento.";
+    }
+
+    tarea.procesador = datos.procesador || tarea.procesador || "-";
+    estado.trabajoActual.estado = calcularEstadoTrabajo(estado.trabajoActual);
+
+    actualizarTarjetaTarea(tarea);
+    actualizarEncabezadoTrabajo();
+    renderizarResultados();
+    actualizarTablero();
+    guardarHistorial(estado.trabajoActual);
+    agregarRegistro(`[${tarea.procesador}] ${tarea.nombre}: ${etiquetaEstado(tarea.estado)}`);
+
+    if (esTrabajoFinal(estado.trabajoActual)) {
+      limpiarTemporizadores({ mantenerConsulta: false });
+      agregarRegistro(`[audio] trabajo ${estado.trabajoActual.id} finalizado como ${etiquetaEstado(estado.trabajoActual.estado)}`);
+    }
+  }
+
+  function iniciarConsulta(idTrabajo) {
+    window.clearInterval(estado.temporizadorConsulta);
+    estado.temporizadorConsulta = window.setInterval(async () => {
+      try {
+        const respuesta = await fetchConTiempo(`${BASE_API}/trabajos/${encodeURIComponent(idTrabajo)}`, {
+          method: "GET"
+        }, 2500);
+
+        if (!respuesta.ok) {
+          throw new Error(`GET /trabajos/${idTrabajo} respondió ${respuesta.status}`);
+        }
+
+        fusionarActualizacionTrabajo(normalizarTrabajoBackend(await respuesta.json(), estado.archivo, obtenerProcesosSeleccionados()));
+      } catch (error) {
+        agregarRegistro(`[consulta] ${error.message}`);
+        window.clearInterval(estado.temporizadorConsulta);
+        estado.temporizadorConsulta = null;
+      }
+    }, 2500);
+  }
+
+  function fusionarActualizacionTrabajo(trabajoActualizado) {
+    if (!estado.trabajoActual) return;
+
+    trabajoActualizado.tareas.forEach((tareaActualizada) => {
+      const tareaActual = estado.trabajoActual.tareas.find((tarea) => tarea.id === tareaActualizada.id);
+      if (tareaActual) {
+        Object.assign(tareaActual, tareaActualizada);
+        actualizarTarjetaTarea(tareaActual);
+      }
+    });
+
+    estado.trabajoActual.estado = calcularEstadoTrabajo(estado.trabajoActual);
+    actualizarEncabezadoTrabajo();
+    renderizarResultados();
+    actualizarTablero();
+    guardarHistorial(estado.trabajoActual);
+
+    if (esTrabajoFinal(estado.trabajoActual)) {
+      limpiarTemporizadores({ mantenerConsulta: false });
+    }
+  }
+
+  function limpiarTemporizadores(opciones = {}) {
+    estado.temporizadores.forEach((temporizador) => window.clearTimeout(temporizador));
+    estado.temporizadores = [];
+
+    if (!opciones.mantenerConsulta && estado.temporizadorConsulta) {
+      window.clearInterval(estado.temporizadorConsulta);
+      estado.temporizadorConsulta = null;
+    }
+  }
+
+  function renderizarTrabajo(trabajo) {
+    elementos.tableroTareas.classList.remove("estado-vacio");
+    elementos.tableroTareas.replaceChildren();
+
+    const tarjetaTrabajo = document.createElement("article");
+    tarjetaTrabajo.className = "tarjeta-trabajo";
+    tarjetaTrabajo.dataset.idTrabajo = trabajo.id;
+
+    const encabezado = document.createElement("div");
+    encabezado.className = "encabezado-tarjeta-trabajo";
+
+    const contenedorTitulo = document.createElement("div");
+    const titulo = document.createElement("strong");
+    titulo.textContent = `Trabajo #${trabajo.id} - ${trabajo.nombreArchivo}`;
+    const detalle = document.createElement("p");
+    detalle.className = "nombre-procesador";
+    detalle.textContent = `${trabajo.tareas.length} tareas creadas`;
+    contenedorTitulo.append(titulo, detalle);
+
+    const insignia = crearInsigniaEstado(trabajo.estado);
+    insignia.dataset.estadoTrabajo = "";
+    encabezado.append(contenedorTitulo, insignia);
+
+    const listaTareas = document.createElement("div");
+    listaTareas.className = "lista-tareas";
+    trabajo.tareas.forEach((tarea) => {
+      listaTareas.append(crearTarjetaTarea(tarea));
+    });
+
+    tarjetaTrabajo.append(encabezado, listaTareas);
+    elementos.tableroTareas.append(tarjetaTrabajo);
+    actualizarEncabezadoTrabajo();
+  }
+
+  function crearTarjetaTarea(tarea) {
+    const tarjeta = document.createElement("article");
+    tarjeta.className = "tarjeta-tarea";
+    tarjeta.dataset.idTarea = tarea.id;
+    tarjeta.dataset.estado = tarea.estado;
+    tarjeta.dataset.tipo = tarea.tipo;
+
+    const contenido = document.createElement("div");
+    contenido.className = "contenido-tarea";
+
+    const filaTitulo = document.createElement("div");
+    filaTitulo.className = "fila-titulo-tarea";
+    const titulo = document.createElement("strong");
+    titulo.textContent = tarea.nombre;
+    filaTitulo.append(titulo, crearInsigniaEstado(tarea.estado));
+
+    const procesador = document.createElement("p");
+    procesador.className = "nombre-procesador";
+    procesador.dataset.procesador = "";
+    procesador.textContent = etiquetaProcesador(tarea.procesador);
+
+    const progreso = document.createElement("div");
+    progreso.className = "contenedor-progreso";
+    progreso.setAttribute("aria-label", `Progreso de ${tarea.nombre}`);
+    const rellenoProgreso = document.createElement("div");
+    rellenoProgreso.className = "relleno-progreso";
+    rellenoProgreso.style.setProperty("--progreso", `${tarea.progreso}%`);
+    progreso.append(rellenoProgreso);
+
+    const mensaje = document.createElement("p");
+    mensaje.className = "mensaje-tarea";
+    mensaje.dataset.mensaje = "";
+    mensaje.textContent = mensajeTarea(tarea);
+
+    contenido.append(filaTitulo, procesador, progreso, mensaje);
+
+    const acciones = document.createElement("div");
+    acciones.className = "acciones-tarea";
+    acciones.dataset.acciones = "";
+    rellenarAccionesTarea(acciones, tarea);
+
+    tarjeta.append(contenido, acciones);
+    return tarjeta;
+  }
+
+  function actualizarTarjetaTarea(tarea) {
+    const tarjeta = document.querySelector(`[data-id-tarea="${escaparCss(tarea.id)}"]`);
+    if (!tarjeta) return;
+
+    tarjeta.dataset.estado = tarea.estado;
+    const insignia = tarjeta.querySelector(".insignia-estado");
+    reemplazarInsigniaEstado(insignia, tarea.estado);
+    tarjeta.querySelector("[data-procesador]").textContent = etiquetaProcesador(tarea.procesador);
+    tarjeta.querySelector(".relleno-progreso").style.setProperty("--progreso", `${tarea.progreso}%`);
+    tarjeta.querySelector("[data-mensaje]").textContent = mensajeTarea(tarea);
+    rellenarAccionesTarea(tarjeta.querySelector("[data-acciones]"), tarea);
+  }
+
+  function rellenarAccionesTarea(contenedor, tarea) {
+    contenedor.replaceChildren();
+
+    if (tarea.estado !== "completada") {
+      return;
+    }
+
+    const enlace = document.createElement("a");
+    enlace.className = "enlace-resultado";
+    enlace.href = tarea.urlResultado || "#";
+    enlace.textContent = tarea.tipo === "onda" ? "ver onda" : "reproducir";
+    if (tarea.urlResultado !== "#lienzoOnda") {
+      enlace.download = `${tarea.tipo}-${estado.trabajoActual?.nombreArchivo || "audio"}`;
+    }
+
+    contenedor.append(enlace);
+  }
+
+  function renderizarResultados() {
+    const tareasCompletadas = estado.trabajoActual?.tareas.filter((tarea) => tarea.estado === "completada") || [];
+    elementos.contadorResultados.textContent = `${tareasCompletadas.length} listos`;
+
+    if (tareasCompletadas.length === 0) {
+      elementos.listaResultados.classList.add("estado-vacio");
+      const vacio = document.createElement("p");
+      vacio.textContent = "Los resultados aparecerán aquí.";
+      elementos.listaResultados.replaceChildren(vacio);
+      return;
+    }
+
+    elementos.listaResultados.classList.remove("estado-vacio");
+    elementos.listaResultados.replaceChildren();
+    tareasCompletadas.forEach((tarea) => {
+      const item = document.createElement("article");
+      item.className = "item-resultado";
+
+      const copia = document.createElement("div");
+      const titulo = document.createElement("strong");
+      titulo.textContent = tarea.nombre;
+      const detalle = document.createElement("span");
+      detalle.textContent = `${etiquetaProcesador(tarea.procesador)} / ${etiquetaEstado(tarea.estado)}`;
+      copia.append(titulo, detalle);
+
+      const enlace = document.createElement("a");
+      enlace.className = "enlace-resultado";
+      enlace.href = tarea.urlResultado || "#";
+      enlace.textContent = tarea.tipo === "onda" ? "ver onda" : "reproducir";
+      if (tarea.urlResultado !== "#lienzoOnda") {
+        enlace.download = `${tarea.tipo}-${estado.trabajoActual?.nombreArchivo || "audio"}`;
+      }
+
+      item.append(copia, enlace);
+      elementos.listaResultados.append(item);
+    });
+  }
+
+  function actualizarEncabezadoTrabajo() {
+    if (!estado.trabajoActual) {
+      elementos.resumenTrabajo.textContent = "esperando audio";
+      return;
+    }
+
+    elementos.resumenTrabajo.textContent = `${etiquetaEstado(estado.trabajoActual.estado)} / ${estado.trabajoActual.tareas.length} tareas`;
+    const insignia = document.querySelector("[data-estado-trabajo]");
+    if (insignia) {
+      reemplazarInsigniaEstado(insignia, estado.trabajoActual.estado);
+    }
+  }
+
+  function crearInsigniaEstado(estadoTarea) {
+    const insignia = document.createElement("span");
+    insignia.className = `insignia-estado ${claseEstado(estadoTarea)}`;
+    insignia.textContent = etiquetaEstado(estadoTarea);
+    return insignia;
+  }
+
+  function reemplazarInsigniaEstado(insignia, estadoTarea) {
+    if (!insignia) return;
+    insignia.className = `insignia-estado ${claseEstado(estadoTarea)}`;
+    insignia.textContent = etiquetaEstado(estadoTarea);
+  }
+
+  function claseEstado(estadoTarea) {
+    if (estadoTarea === "en_proceso") return "en-proceso";
+    return estadoTarea;
+  }
+
+  function calcularEstadoTrabajo(trabajo) {
+    if (trabajo.tareas.some((tarea) => tarea.estado === "en_proceso")) return "en_proceso";
+    if (trabajo.tareas.some((tarea) => tarea.estado === "pendiente")) return "pendiente";
+    if (trabajo.tareas.some((tarea) => tarea.estado === "error")) return "error";
+    if (trabajo.tareas.every((tarea) => tarea.estado === "completada")) return "completada";
+    return "pendiente";
+  }
+
+  function esTrabajoFinal(trabajo) {
+    return trabajo.tareas.every((tarea) => ["completada", "error"].includes(tarea.estado));
+  }
+
+  function etiquetaEstado(estadoTarea) {
+    const etiquetas = {
+      pendiente: "pendiente",
+      en_proceso: "en proceso",
+      completada: "completada",
+      error: "error"
+    };
+
+    return etiquetas[estadoTarea] || estadoTarea;
+  }
+
+  function normalizarEstado(estadoTarea) {
+    const valor = String(estadoTarea).toLowerCase();
+    if (["pendiente", "en cola", "creada"].includes(valor)) return "pendiente";
+    if (["en proceso", "en_proceso", "procesando", "iniciada"].includes(valor)) return "en_proceso";
+    if (["completada", "completado", "lista", "listo"].includes(valor)) return "completada";
+    if (["fallida", "fallido", "error"].includes(valor)) return "error";
+    return "pendiente";
+  }
+
+  function etiquetaProcesador(procesador) {
+    return procesador && procesador !== "-" ? procesador : "sin procesador";
+  }
+
+  function mensajeTarea(tarea) {
+    if (tarea.estado === "pendiente") return "Esperando procesador disponible.";
+    if (tarea.estado === "en_proceso") return `Procesando ${Math.round(tarea.progreso)}%.`;
+    if (tarea.estado === "completada") return "Artefacto listo para revisar.";
+    if (tarea.estado === "error") return tarea.error || "La tarea falló.";
+    return "";
+  }
+
+  function actualizarTablero() {
+    const tareas = estado.trabajoActual?.tareas || [];
+    elementos.metricaProcesadores.textContent = String(estado.procesadoresActivos);
+    elementos.metricaPendientes.textContent = String(tareas.filter((tarea) => tarea.estado === "pendiente").length);
+    elementos.metricaEnProceso.textContent = String(tareas.filter((tarea) => tarea.estado === "en_proceso").length);
+    elementos.metricaCompletadas.textContent = String(tareas.filter((tarea) => tarea.estado === "completada").length);
+    elementos.metricaErrores.textContent = String(tareas.filter((tarea) => tarea.estado === "error").length);
+  }
+
+  function cargarHistorial() {
+    const historialActual = leerJson(CLAVE_HISTORIAL, null);
+    if (Array.isArray(historialActual)) {
+      return historialActual;
+    }
+
+    return [];
+  }
+
+  function normalizarEntradaHistorial(entrada) {
+    return {
+      id: entrada.id,
+      nombreArchivo: entrada.nombreArchivo || "audio",
+      estado: normalizarEstado(entrada.estado),
+      creadoEn: entrada.creadoEn || new Date().toISOString(),
+      tareasTotales: entrada.tareasTotales || 0,
+      tareasCompletadas: entrada.tareasCompletadas || 0,
+      tareasConError: entrada.tareasConError || 0
+    };
+  }
+
+  function guardarHistorial(trabajo) {
+    const resumen = {
+      id: trabajo.id,
+      nombreArchivo: trabajo.nombreArchivo,
+      estado: trabajo.estado,
+      creadoEn: trabajo.creadoEn,
+      tareasTotales: trabajo.tareas.length,
+      tareasCompletadas: trabajo.tareas.filter((tarea) => tarea.estado === "completada").length,
+      tareasConError: trabajo.tareas.filter((tarea) => tarea.estado === "error").length
+    };
+
+    estado.historial = [resumen, ...estado.historial.filter((entrada) => entrada.id !== trabajo.id)].slice(0, 8);
+    localStorage.setItem(CLAVE_HISTORIAL, JSON.stringify(estado.historial));
+    renderizarHistorial();
+  }
+
+  function renderizarHistorial() {
+    if (estado.historial.length === 0) {
+      elementos.listaHistorial.classList.add("estado-vacio");
+      const vacio = document.createElement("p");
+      vacio.textContent = "Aún no hay trabajos guardados en el navegador.";
+      elementos.listaHistorial.replaceChildren(vacio);
+      return;
+    }
+
+    elementos.listaHistorial.classList.remove("estado-vacio");
+    elementos.listaHistorial.replaceChildren();
+    estado.historial.forEach((entrada) => {
+      const fila = document.createElement("article");
+      fila.className = "item-historial";
+
+      const copia = document.createElement("div");
+      const titulo = document.createElement("strong");
+      titulo.textContent = entrada.nombreArchivo;
+
+      const detalle = document.createElement("div");
+      detalle.className = "meta-historial";
+      const creado = document.createElement("span");
+      creado.textContent = formatearFecha(entrada.creadoEn);
+      const tareas = document.createElement("span");
+      tareas.textContent = `${entrada.tareasCompletadas}/${entrada.tareasTotales} listas`;
+      detalle.append(creado, tareas);
+      copia.append(titulo, detalle);
+
+      const insignia = crearInsigniaEstado(entrada.estado);
+      fila.append(copia, insignia);
+      elementos.listaHistorial.append(fila);
+    });
+  }
+
+  function limpiarHistorial() {
+    estado.historial = [];
+    localStorage.removeItem(CLAVE_HISTORIAL);
+    renderizarHistorial();
+    agregarRegistro("[interfaz] historial limpiado");
+  }
+
+  function agregarRegistro(mensaje) {
+    const entrada = document.createElement("li");
+    entrada.textContent = mensaje;
+    elementos.listaRegistros.prepend(entrada);
+
+    while (elementos.listaRegistros.children.length > 60) {
+      elementos.listaRegistros.lastElementChild.remove();
+    }
+  }
+
+  function limpiarRegistros() {
+    elementos.listaRegistros.replaceChildren();
+    agregarRegistro("[sistema] registro limpio");
+  }
+
+  function dibujarOndaVacia() {
+    if (!contextoLienzo) return;
+
+    const paleta = obtenerPaletaLienzo();
+    const { width: ancho, height: alto } = elementos.lienzoOnda;
+    contextoLienzo.clearRect(0, 0, ancho, alto);
+    contextoLienzo.fillStyle = paleta.fondo;
+    contextoLienzo.fillRect(0, 0, ancho, alto);
+    dibujarGrillaOnda(ancho, alto, paleta);
+
+    const centro = alto / 2;
+    for (let x = 0; x < ancho; x += 12) {
+      const amplitud = 12 + Math.sin(x * 0.035) * 8 + Math.cos(x * 0.013) * 5;
+      dibujarBarraOnda(x, centro, amplitud, paleta.ondaA);
+    }
+  }
+
+  async function dibujarOndaDesdeArchivo(archivo) {
+    if (!contextoLienzo) return;
+
+    const ConstructorAudio = window.AudioContext || window.webkitAudioContext;
+    if (!ConstructorAudio) {
+      dibujarOndaVacia();
+      return;
+    }
+
+    try {
+      const contextoAudio = new ConstructorAudio();
+      const datos = await archivo.arrayBuffer();
+      const bufferAudio = await contextoAudio.decodeAudioData(datos.slice(0));
+      dibujarOnda(bufferAudio.getChannelData(0));
+      await contextoAudio.close();
+    } catch (error) {
+      agregarRegistro("[interfaz] no se pudo dibujar la onda real; usando vista previa visual");
+      dibujarOndaVacia();
+    }
+  }
+
+  function dibujarOnda(muestras) {
+    const paleta = obtenerPaletaLienzo();
+    const { width: ancho, height: alto } = elementos.lienzoOnda;
+    const centro = alto / 2;
+    const paso = Math.ceil(muestras.length / ancho);
+
+    contextoLienzo.clearRect(0, 0, ancho, alto);
+    contextoLienzo.fillStyle = paleta.fondo;
+    contextoLienzo.fillRect(0, 0, ancho, alto);
+    dibujarGrillaOnda(ancho, alto, paleta);
+
+    for (let x = 0; x < ancho; x += 2) {
+      let minimo = 1;
+      let maximo = -1;
+
+      for (let indice = 0; indice < paso; indice += 1) {
+        const muestra = muestras[(x * paso) + indice] || 0;
+        if (muestra < minimo) minimo = muestra;
+        if (muestra > maximo) maximo = muestra;
+      }
+
+      const amplitud = Math.max(2, (maximo - minimo) * centro * 0.9);
+      const puntoColor = x / ancho;
+      const color = puntoColor < 0.55 ? paleta.ondaA : paleta.ondaB;
+      dibujarBarraOnda(x, centro, amplitud, color);
+    }
+  }
+
+  function dibujarGrillaOnda(ancho, alto, paleta = obtenerPaletaLienzo()) {
+    contextoLienzo.save();
+    contextoLienzo.strokeStyle = paleta.grilla;
+    contextoLienzo.lineWidth = 1;
+
+    for (let x = 0; x < ancho; x += 45) {
+      contextoLienzo.beginPath();
+      contextoLienzo.moveTo(x, 0);
+      contextoLienzo.lineTo(x, alto);
+      contextoLienzo.stroke();
+    }
+
+    for (let y = 0; y < alto; y += 44) {
+      contextoLienzo.beginPath();
+      contextoLienzo.moveTo(0, y);
+      contextoLienzo.lineTo(ancho, y);
+      contextoLienzo.stroke();
+    }
+
+    contextoLienzo.restore();
+  }
+
+  function dibujarBarraOnda(x, centro, amplitud, color) {
+    contextoLienzo.strokeStyle = color;
+    contextoLienzo.lineWidth = 2;
+    contextoLienzo.beginPath();
+    contextoLienzo.moveTo(x, centro - amplitud / 2);
+    contextoLienzo.lineTo(x, centro + amplitud / 2);
+    contextoLienzo.stroke();
+  }
+
+  function obtenerPaletaLienzo() {
+    const estilos = getComputedStyle(document.documentElement);
+    return {
+      fondo: estilos.getPropertyValue("--fondo-lienzo").trim() || "#171717",
+      grilla: estilos.getPropertyValue("--grilla-lienzo").trim() || "rgba(236, 238, 237, 0.14)",
+      ondaA: estilos.getPropertyValue("--onda-lienzo-a").trim() || "rgba(240, 134, 198, 0.9)",
+      ondaB: estilos.getPropertyValue("--onda-lienzo-b").trim() || "rgba(109, 184, 201, 0.92)"
+    };
+  }
+
+  function leerJson(clave, respaldo) {
+    try {
+      const valor = localStorage.getItem(clave);
+      return valor ? JSON.parse(valor) : respaldo;
+    } catch (error) {
+      return respaldo;
+    }
+  }
+
+  function formatearBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes === 0) return "0 B";
+
+    const unidades = ["B", "KB", "MB", "GB"];
+    const indice = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), unidades.length - 1);
+    const valor = bytes / (1024 ** indice);
+    return `${valor.toFixed(valor >= 10 || indice === 0 ? 0 : 1)} ${unidades[indice]}`;
+  }
+
+  function formatearDuracion(segundos) {
+    if (!Number.isFinite(segundos)) return "00:00";
+
+    const minutos = Math.floor(segundos / 60);
+    const segundosRestantes = Math.floor(segundos % 60);
+    return `${String(minutos).padStart(2, "0")}:${String(segundosRestantes).padStart(2, "0")}`;
+  }
+
+  function formatearFecha(valor) {
+    const fecha = new Date(valor);
+    if (Number.isNaN(fecha.getTime())) return "fecha desconocida";
+
+    return new Intl.DateTimeFormat("es", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    }).format(fecha);
+  }
+
+  function limitar(valor, minimo, maximo) {
+    return Math.min(Math.max(valor, minimo), maximo);
+  }
+
+  function escaparCss(valor) {
+    if (window.CSS?.escape) {
+      return window.CSS.escape(valor);
+    }
+
+    return String(valor).replace(/"/g, "\\\"");
+  }
+
+  return {
+    iniciar
+  };
+})();
+
+LaboratorioAudio.iniciar();

@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AudioLab</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div class="contenedor-app">
+      <header class="barra-superior">
+        <div class="texto-cabecera">
+          <p class="rotulo">AudioLab</p>
+          <h1 class="titulo-marca">
+            <span class="marca-a">Audio</span>
+            <span class="marca-b">Lab</span>
+          </h1>
+          <p class="subtitulo">Transforma tu audio en tiempo real</p>
+        </div>
+
+        <aside class="consola-estado" aria-label="Estado del sistema">
+          <div class="marca-consola" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <div class="estado-sistema">
+            <span class="pastilla-estado esta-en-linea"><span></span> API conectada</span>
+            <span class="pastilla-estado esta-en-linea"><span></span> Redis conectado</span>
+            <span class="pastilla-estado esta-ocupado"><span></span> 3 procesadores activos</span>
+          </div>
+        </aside>
+      </header>
+
+      <nav class="barra-comandos" aria-label="Navegación de AudioLab">
+        <div class="celda-tema">
+          <label class="interruptor-tema" title="Cambiar tema">
+            <input id="alternarTema" type="checkbox" aria-label="Cambiar tema">
+            <span class="forma-interruptor" aria-hidden="true"></span>
+          </label>
+        </div>
+        <div class="enlaces-navegacion">
+          <a href="#zonaArrastre">entrada</a>
+          <a href="#panelProcesos">procesos</a>
+          <a href="#tituloTrabajoActual">trabajo</a>
+          <a href="#listaRegistros">registros</a>
+          <a href="#tituloHistorial">archivo</a>
+        </div>
+        <div class="id-cola" aria-label="Canal de cola activo">
+          <span>bus</span>
+          <strong>Q-676</strong>
+        </div>
+      </nav>
+
+      <main>
+        <section class="grilla-espacio-trabajo" aria-label="Carga y configuracion del audio">
+          <article class="panel panel-carga">
+            <div class="encabezado-panel">
+              <div>
+                <p class="rotulo-seccion">Paso 1</p>
+                <h2>Subir audio</h2>
+              </div>
+              <span class="lista-formatos">WAV MP3 OGG M4A</span>
+            </div>
+
+            <div id="zonaArrastre" class="zona-arrastre" tabindex="0" role="button" aria-describedby="ayudaArrastre">
+              <input id="entradaArchivo" class="solo-lectores" type="file" accept="audio/wav,audio/mpeg,audio/ogg,audio/mp4,audio/x-m4a,.wav,.mp3,.ogg,.m4a">
+              <div class="icono-arrastre" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M12 3v11m0-11 4 4m-4-4-4 4M4 15v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3"/>
+                </svg>
+              </div>
+              <strong>Arrastra tu audio aquí</strong>
+              <span id="ayudaArrastre">o selecciona un archivo desde tu equipo</span>
+              <button id="botonSeleccionarArchivo" class="boton-secundario" type="button">Seleccionar archivo</button>
+            </div>
+
+            <dl id="detallesArchivo" class="detalles-archivo esta-vacio">
+              <div>
+                <dt>Nombre</dt>
+                <dd data-nombre-archivo>Sin archivo</dd>
+              </div>
+              <div>
+                <dt>Tamaño</dt>
+                <dd data-tamano-archivo>-</dd>
+              </div>
+              <div>
+                <dt>Tipo</dt>
+                <dd data-tipo-archivo>-</dd>
+              </div>
+            </dl>
+
+            <div class="pila-vista-previa">
+              <div class="encabezado-vista-previa">
+                <h3>Audio original</h3>
+                <span id="etiquetaDuracion">00:00</span>
+              </div>
+              <audio id="vistaAudio" controls preload="metadata"></audio>
+
+              <div class="contenedor-onda">
+                <canvas id="lienzoOnda" width="900" height="220" aria-label="Onda del audio cargado"></canvas>
+              </div>
+            </div>
+          </article>
+
+          <aside id="panelProcesos" class="panel panel-procesos">
+            <div class="encabezado-panel">
+              <div>
+                <p class="rotulo-seccion">Paso 2</p>
+                <h2>Procesos</h2>
+              </div>
+            </div>
+
+            <fieldset class="lista-procesos">
+              <legend class="solo-lectores">Selecciona procesos de audio</legend>
+              <label class="opcion-proceso">
+                <input type="checkbox" value="transcripcion" data-nombre-proceso="Transcribir audio">
+                <span class="marca-seleccion"></span>
+                <span>
+                  <strong>Transcribir audio</strong>
+                  <small>Convierte el audio en texto.</small>
+                </span>
+              </label>
+              <label class="opcion-proceso">
+                <input type="checkbox" value="lento" data-nombre-proceso="Crear versión lenta">
+                <span class="marca-seleccion"></span>
+                <span>
+                  <strong>Crear versión lenta</strong>
+                  <small>Reduce la velocidad del audio.</small>
+                </span>
+              </label>
+              <label class="opcion-proceso">
+                <input type="checkbox" value="rapido" data-nombre-proceso="Crear versión rápida">
+                <span class="marca-seleccion"></span>
+                <span>
+                  <strong>Crear versión rápida</strong>
+                  <small>Acelera la pista original.</small>
+                </span>
+              </label>
+              <label class="opcion-proceso">
+                <input type="checkbox" value="tono_grave" data-nombre-proceso="Cambiar tono grave">
+                <span class="marca-seleccion"></span>
+                <span>
+                  <strong>Cambiar tono grave</strong>
+                  <small>Baja el tono sin cambiar el archivo base.</small>
+                </span>
+              </label>
+              <label class="opcion-proceso">
+                <input type="checkbox" value="tono_agudo" data-nombre-proceso="Cambiar tono agudo">
+                <span class="marca-seleccion"></span>
+                <span>
+                  <strong>Cambiar tono agudo</strong>
+                  <small>Sube el tono para comparaciones rápidas.</small>
+                </span>
+              </label>
+              <label class="opcion-proceso">
+                <input type="checkbox" value="onda" data-nombre-proceso="Generar onda">
+                <span class="marca-seleccion"></span>
+                <span>
+                  <strong>Generar onda</strong>
+                  <small>Produce una visualización para resultados.</small>
+                </span>
+              </label>
+            </fieldset>
+
+            <div class="tarjeta-envio">
+              <button id="botonProcesar" class="boton-primario" type="button" disabled>
+                Procesar audio
+              </button>
+              <p id="ayudaEnvio">Carga un archivo y selecciona al menos un proceso.</p>
+            </div>
+          </aside>
+        </section>
+
+        <section class="grilla-trabajos" aria-label="Trabajo actual y resultados">
+          <article class="panel panel-trabajo-actual" aria-labelledby="tituloTrabajoActual">
+            <div class="encabezado-panel encabezado-compacto">
+              <div>
+                <p class="rotulo-seccion">Paso 3</p>
+                <h2 id="tituloTrabajoActual">Trabajo actual</h2>
+              </div>
+              <span id="resumenTrabajo" class="resumen-trabajo">Esperando audio</span>
+            </div>
+            <div id="tableroTareas" class="tablero-tareas estado-vacio">
+              <p>Las tareas aparecerán aquí cuando envíes el audio al servidor.</p>
+            </div>
+          </article>
+
+          <article class="panel panel-resultados" aria-labelledby="tituloResultados">
+            <div class="encabezado-panel encabezado-compacto">
+              <div>
+                <p class="rotulo-seccion">Artefactos</p>
+                <h2 id="tituloResultados">Resultados</h2>
+              </div>
+              <span id="contadorResultados" class="resumen-trabajo">0 listos</span>
+            </div>
+            <div id="listaResultados" class="lista-resultados estado-vacio">
+              <p>Los resultados apareceran aqui.</p>
+            </div>
+          </article>
+        </section>
+
+        <section class="grilla-monitoreo" aria-label="Monitoreo e historial">
+          <article class="panel panel-tablero">
+            <div class="encabezado-panel encabezado-compacto">
+              <div>
+                <p class="rotulo-seccion">Sistema</p>
+                <h2>Tablero</h2>
+              </div>
+            </div>
+
+            <div class="grilla-metricas">
+              <div class="metrica">
+                <span>Procesadores activos</span>
+                <strong id="metricaProcesadores">3</strong>
+              </div>
+              <div class="metrica">
+                <span>Pendientes</span>
+                <strong id="metricaPendientes">0</strong>
+              </div>
+              <div class="metrica">
+                <span>En proceso</span>
+                <strong id="metricaEnProceso">0</strong>
+              </div>
+              <div class="metrica">
+                <span>Completadas</span>
+                <strong id="metricaCompletadas">0</strong>
+              </div>
+              <div class="metrica">
+                <span>Errores</span>
+                <strong id="metricaErrores">0</strong>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel panel-registros">
+            <div class="encabezado-panel encabezado-compacto">
+              <div>
+                <p class="rotulo-seccion">Eventos</p>
+                <h2>Registros en vivo</h2>
+              </div>
+              <button id="botonLimpiarRegistros" class="boton-icono" type="button" aria-label="Limpiar registros" title="Limpiar registros">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13"/>
+                </svg>
+              </button>
+            </div>
+            <ol id="listaRegistros" class="lista-registros" aria-live="polite">
+              <li>[sistema] listo para recibir trabajos...</li>
+            </ol>
+          </article>
+        </section>
+
+        <section class="panel panel-historial" aria-labelledby="tituloHistorial">
+          <div class="encabezado-panel encabezado-compacto">
+            <div>
+              <p class="rotulo-seccion">Archivo</p>
+              <h2 id="tituloHistorial">Historial reciente</h2>
+            </div>
+            <button id="botonLimpiarHistorial" class="boton-secundario boton-pequeno" type="button">Limpiar historial</button>
+          </div>
+          <div id="listaHistorial" class="lista-historial estado-vacio">
+            <p>Aún no hay trabajos guardados en el almacenamiento local.</p>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>
