@@ -11,23 +11,24 @@
       <!-- Cabecera principal: marca, estado general y bloque visual fijo de arriba. -->
       <header class="barra-superior">
         <div class="texto-cabecera">
-          <p class="rotulo">AudioLab</p>
+          <div class="rotulo" aria-label="Tecnologías usadas">
+            <span>Redis</span>
+            <span>Docker</span>
+            <span>API</span>
+            <span>S3</span>
+          </div>
           <h1 class="titulo-marca">
             <span class="marca-a">Audio</span>
             <span class="marca-b">Lab</span>
           </h1>
-          <p class="subtitulo">Transforma tu audio en tiempo real</p>
+          <p class="subtitulo">Audio distribuido, workers en paralelo y resultados listos para descargar.</p>
         </div>
 
         <aside class="consola-estado" aria-label="Estado del sistema">
-          <div class="marca-consola" aria-hidden="true">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
+          <div class="marca-consola" aria-hidden="true"></div>
           <div class="estado-sistema">
-            <span class="pastilla-estado esta-en-linea"><span></span> API conectada</span>
-            <span class="pastilla-estado esta-en-linea"><span></span> Redis conectado</span>
+            <span class="pastilla-estado esta-en-linea" data-estado-api><span></span> API conectada</span>
+            <span class="pastilla-estado esta-en-linea" data-estado-redis><span></span> Redis conectado</span>
             <span class="pastilla-estado esta-ocupado"><span></span> 3 workers activos</span>
           </div>
         </aside>
@@ -48,9 +49,8 @@
           <a href="#listaRegistros">registros</a>
           <a href="#tituloHistorial">archivo</a>
         </div>
-        <div class="id-cola" aria-label="Canal de cola activo">
-          <span>bus</span>
-          <strong>Q-676</strong>
+        <div class="id-cola" aria-label="Animación de sonido">
+          <img src="assets/ekkant-sound-8825.gif" alt="Animación de sonido">
         </div>
       </nav>
 
@@ -96,7 +96,11 @@
             <div class="pila-vista-previa">
               <div class="encabezado-vista-previa">
                 <h3>Audio original y vista previa de onda</h3>
-                <span id="etiquetaDuracion">00:00</span>
+                <label class="control-volumen" aria-label="Control de volumen del audio original">
+                  <span>vol</span>
+                  <input id="controlVolumen" type="range" min="0" max="100" value="100" step="1">
+                  <strong id="etiquetaVolumen">100%</strong>
+                </label>
               </div>
               <audio id="vistaAudio" preload="metadata" aria-hidden="true"></audio>
 

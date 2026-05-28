@@ -218,15 +218,28 @@ button {
 }
 
 .rotulo {
-  width: max-content;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  width: fit-content;
   max-width: 100%;
   margin: 0;
-  border: 1px solid var(--borde);
-  background: var(--acento-1);
   color: var(--opuesto);
-  padding: 0.3rem 0.5rem;
   font-size: 0.72rem;
   font-weight: 800;
+}
+
+.rotulo span {
+  border: 1px solid var(--borde);
+  padding: 0.3rem 0.5rem;
+}
+
+.rotulo span:nth-child(odd) {
+  background: var(--acento-1);
+}
+
+.rotulo span:nth-child(even) {
+  background: var(--acento-2);
 }
 
 .titulo-marca {
@@ -267,11 +280,15 @@ button {
 }
 
 .subtitulo {
-  max-width: 42rem;
+  max-width: 34rem;
   margin: 0;
   color: var(--texto);
-  font-size: 1rem;
-  line-height: 1.75;
+  font-family: var(--fuente-titulos);
+  font-size: clamp(1.05rem, 1.45vw, 1.35rem);
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1.18;
+  letter-spacing: -0.02em;
 }
 
 /* Consola lateral de la cabecera: estado visual de API, Redis y workers. */
@@ -304,35 +321,6 @@ button {
   box-shadow: 0 0 0 1px var(--borde);
 }
 
-.marca-consola span {
-  position: absolute;
-  border: 1px solid var(--borde);
-  background: var(--fondo);
-}
-
-.marca-consola span:nth-child(1) {
-  width: 12rem;
-  height: 1px;
-  transform: rotate(-28deg);
-}
-
-.marca-consola span:nth-child(2) {
-  width: 1px;
-  height: 12rem;
-  transform: rotate(28deg);
-}
-
-.marca-consola span:nth-child(3) {
-  width: 5.2rem;
-  height: 5.2rem;
-  background: var(--acento-2);
-  mix-blend-mode: multiply;
-}
-
-[data-tema="oscuro"] .marca-consola span:nth-child(3) {
-  mix-blend-mode: screen;
-}
-
 .estado-sistema {
   display: grid;
   gap: 0.65rem;
@@ -345,7 +333,10 @@ button {
   gap: 0.55rem;
   min-height: 2.3rem;
   border: 1px solid var(--borde);
-  background: var(--fondo);
+  background:
+    linear-gradient(135deg, rgba(var(--rgb-acento-1) / 0.22), transparent 62%),
+    linear-gradient(315deg, rgba(var(--rgb-acento-2) / 0.24), transparent 58%),
+    var(--fondo);
   color: var(--texto);
   padding: 0.42rem 0.55rem;
   font-size: 0.7rem;
@@ -357,11 +348,7 @@ button {
   height: 0.65rem;
   flex: 0 0 auto;
   border: 1px solid var(--borde);
-  background: var(--exito);
-}
-
-.pastilla-estado.esta-ocupado > span {
-  background: var(--advertencia);
+  background: var(--acento-1);
 }
 
 /* Barra pegajosa de navegacion. El margen negativo la alinea con el marco exterior. */
@@ -378,7 +365,6 @@ button {
   padding: 0;
   border: 1px solid var(--borde);
   background: var(--fondo);
-  box-shadow: 0 10px 0 rgba(16, 16, 16, 0.08);
 }
 
 .celda-tema {
@@ -443,8 +429,8 @@ button {
   flex: 1 1 auto;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+  justify-content: center;
+  gap: clamp(2.2rem, 6.5vw, 6rem);
   min-width: 0;
   padding: 1rem 1.5rem;
   border-right: 1px solid var(--borde);
@@ -465,30 +451,32 @@ button {
 
 .id-cola {
   position: relative;
-  flex: 0 0 auto;
+  flex: 0 0 12rem;
   display: grid;
   place-items: center;
-  gap: 0.15rem;
+  width: 12rem;
+  height: 5.6rem;
   min-width: 12rem;
-  background: linear-gradient(45deg, rgba(var(--rgb-acento-1) / 0.26), rgba(var(--rgb-acento-2) / 0.26));
+  background: transparent;
   color: var(--texto);
   text-align: center;
   font-size: 0.67rem;
   font-weight: 800;
+  overflow: hidden;
 }
 
 .id-cola::after {
   display: none;
 }
 
-.id-cola strong {
-  color: var(--opuesto);
-  background: var(--acento-3);
-  border: 1px solid var(--borde);
-  padding: 0.2rem 0.45rem;
-  font-family: var(--fuente-mono);
-  font-size: 0.9rem;
-  letter-spacing: 0.08em;
+.id-cola img {
+  position: relative;
+  top: -10%;
+  display: block;
+  width: calc(100% - 0.8rem);
+  height: 115%;
+  object-fit: cover;
+  object-position: center;
 }
 
 /* Rejillas principales: definen como se acomodan carga, procesos, trabajo y monitoreo. */
@@ -515,6 +503,10 @@ main {
 
 .grilla-monitoreo {
   grid-template-columns: minmax(20rem, 0.58fr) minmax(0, 1fr);
+}
+
+.panel-tablero {
+  align-self: start;
 }
 
 /* Paneles reutilizables: misma caja, borde y sombra para mantener el lenguaje visual. */
@@ -551,6 +543,21 @@ main {
 
 .encabezado-compacto {
   min-height: 5.25rem;
+}
+
+.panel-historial .encabezado-panel {
+  position: relative;
+  border-bottom: 0;
+}
+
+.panel-historial .encabezado-panel::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  background: var(--borde);
 }
 
 .acciones-encabezado {
@@ -735,14 +742,70 @@ main {
   text-transform: uppercase;
 }
 
-#etiquetaDuracion {
+.control-volumen {
+  display: inline-grid;
+  grid-template-columns: auto 7.8rem auto;
+  gap: 0.55rem;
+  align-items: center;
   border: 1px solid var(--borde);
   background: var(--acento-1);
   color: var(--opuesto);
-  padding: 0.2rem 0.42rem;
+  padding: 0.34rem 0.5rem;
   font-family: var(--fuente-mono);
-  font-size: 0.78rem;
+  font-size: 0.7rem;
   font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.control-volumen input {
+  --volumen: 100%;
+  width: 100%;
+  height: 0.9rem;
+  margin: 0;
+  appearance: none;
+  border: 1px solid var(--borde);
+  background:
+    linear-gradient(90deg, var(--acento-3) 0 var(--volumen), var(--opuesto) var(--volumen) 100%);
+  cursor: pointer;
+}
+
+.control-volumen input::-webkit-slider-runnable-track {
+  height: 0.9rem;
+  background: transparent;
+}
+
+.control-volumen input::-moz-range-track {
+  height: 0.9rem;
+  background: transparent;
+}
+
+.control-volumen input::-webkit-slider-thumb {
+  width: 0;
+  height: 0.9rem;
+  margin-top: 0;
+  appearance: none;
+  border: 0;
+  background: transparent;
+}
+
+.control-volumen input::-moz-range-thumb {
+  width: 0;
+  height: 0.9rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.control-volumen strong {
+  min-width: 2.5rem;
+  font: inherit;
+  text-align: right;
+}
+
+.control-volumen input:focus {
+  outline: none;
 }
 
 audio {
@@ -1255,9 +1318,8 @@ audio {
 .grilla-metricas {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  background: var(--borde);
-  gap: 1px;
-  padding: 1px;
+  background: var(--fondo);
+  gap: 0;
 }
 
 .metrica {
@@ -1265,6 +1327,8 @@ audio {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  border-right: 1px solid var(--borde);
+  border-bottom: 1px solid var(--borde);
   background: var(--fondo);
   padding: 1rem;
 }
@@ -1275,6 +1339,14 @@ audio {
   background:
     linear-gradient(45deg, rgba(var(--rgb-acento-1) / 0.22), rgba(var(--rgb-acento-2) / 0.22)),
     var(--fondo);
+}
+
+.metrica:nth-child(odd) {
+  border-right: 0;
+}
+
+.metrica:nth-last-child(-n + 2) {
+  border-bottom: 0;
 }
 
 .metrica span {
@@ -1294,31 +1366,73 @@ audio {
 }
 
 /* Registros en vivo: consola local de eventos de interfaz y backend. */
+.panel-registros {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: min(36rem, calc(100vh - 7rem));
+  overflow: hidden;
+}
+
 .lista-registros {
-  height: 23rem;
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  height: clamp(18rem, 48vh, 26rem);
+  min-height: 0;
+  max-height: 26rem;
   margin: 0;
-  padding: 0;
-  overflow: auto;
+  padding: 0 0 3.5rem;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--acento-1) var(--superficie);
+  scrollbar-width: auto;
   list-style: none;
-  background: var(--fondo-lienzo);
-  color: #f7f4ef;
+  background:
+    linear-gradient(135deg, rgba(var(--rgb-acento-1) / 0.08), transparent 58%),
+    linear-gradient(315deg, rgba(var(--rgb-acento-2) / 0.10), transparent 62%),
+    var(--superficie);
+  color: var(--texto);
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.04em;
+}
+
+.lista-registros::-webkit-scrollbar {
+  width: 0.8rem;
+}
+
+.lista-registros::-webkit-scrollbar-track {
+  background: var(--superficie);
+}
+
+.lista-registros::-webkit-scrollbar-thumb {
+  border: 2px solid var(--superficie);
+  background: var(--acento-1);
 }
 
 .lista-registros li {
   display: flex;
   align-items: baseline;
   gap: 0.55rem;
-  border-bottom: 1px solid rgba(247, 244, 239, 0.14);
+  min-width: 0;
+  max-width: 100%;
+  border-bottom: 1px solid var(--borde-suave);
   padding: 0.72rem 1rem;
+}
+
+.mensaje-log {
+  min-width: 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .etiqueta-log {
   flex: 0 0 auto;
   min-width: 8.6rem;
-  border: 1px solid rgba(247, 244, 239, 0.26);
+  border: 1px solid var(--borde);
   color: #101010;
   padding: 0.12rem 0.35rem;
   font-family: var(--fuente-mono);
@@ -1372,8 +1486,10 @@ audio {
 /* Historial local: trabajos terminados guardados en localStorage. */
 .lista-historial {
   display: grid;
-  gap: 1px;
-  background: var(--borde);
+  gap: 0;
+  background:
+    linear-gradient(90deg, rgba(var(--rgb-acento-1) / 0.22), rgba(var(--rgb-acento-2) / 0.22)),
+    var(--superficie);
 }
 
 .lista-historial.estado-vacio {
@@ -1385,8 +1501,13 @@ audio {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 1rem;
   align-items: center;
+  border: 1px solid var(--borde);
   background: var(--fondo);
   padding: 1rem 1.25rem;
+}
+
+.item-historial + .item-historial {
+  border-top: 0;
 }
 
 .meta-historial {
@@ -1493,8 +1614,10 @@ audio {
   }
 
   .id-cola {
-    flex: 1 1 auto;
-    width: auto;
+    flex: 0 0 12rem;
+    width: 12rem;
+    height: 5.4rem;
+    min-width: 12rem;
   }
 
   .encabezado-panel,

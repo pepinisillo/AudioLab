@@ -51,7 +51,8 @@ const AudioLab = (() => {
     tamanoArchivo: document.querySelector("[data-tamano-archivo]"),
     tipoArchivo: document.querySelector("[data-tipo-archivo]"),
     reproductorAudio: document.querySelector("#vistaAudio"),
-    etiquetaDuracion: document.querySelector("#etiquetaDuracion"),
+    controlVolumen: document.querySelector("#controlVolumen"),
+    etiquetaVolumen: document.querySelector("#etiquetaVolumen"),
     contenedorOnda: document.querySelector(".contenedor-onda"),
     lienzoOnda: document.querySelector("#lienzoOnda"),
     botonOnda: document.querySelector("#botonOnda"),
@@ -62,6 +63,8 @@ const AudioLab = (() => {
     resumenTrabajo: document.querySelector("#resumenTrabajo"),
     botonLimpiarTrabajo: document.querySelector("#botonLimpiarTrabajo"),
     tableroTareas: document.querySelector("#tableroTareas"),
+    estadoApiCabecera: document.querySelector("[data-estado-api]"),
+    estadoRedisCabecera: document.querySelector("[data-estado-redis]"),
     estadoWorkersCabecera: document.querySelector(".pastilla-estado.esta-ocupado"),
     metricaWorkers: document.querySelector("#metricaWorkers"),
     metricaPendientes: document.querySelector("#metricaPendientes"),
@@ -162,22 +165,21 @@ const AudioLab = (() => {
       entrada.addEventListener("change", actualizarEstadoBoton);
     });
 
-    elementos.reproductorAudio.addEventListener("loadedmetadata", () => {
-      elementos.etiquetaDuracion.textContent = formatearDuracion(
-        elementos.reproductorAudio.duration
-      );
-      actualizarEstadoReproductorOnda();
-    });
+    elementos.reproductorAudio.addEventListener("loadedmetadata", actualizarEstadoReproductorOnda);
 
     elementos.reproductorAudio.addEventListener("timeupdate", actualizarEstadoReproductorOnda);
     elementos.reproductorAudio.addEventListener("play", actualizarEstadoReproductorOnda);
     elementos.reproductorAudio.addEventListener("pause", actualizarEstadoReproductorOnda);
     elementos.reproductorAudio.addEventListener("ended", actualizarEstadoReproductorOnda);
+    elementos.reproductorAudio.addEventListener("volumechange", actualizarControlVolumen);
 
     elementos.botonOnda?.addEventListener("click", (evento) => {
       evento.stopPropagation();
       alternarReproduccionOnda();
     });
+
+    elementos.controlVolumen?.addEventListener("input", cambiarVolumen);
+    actualizarControlVolumen();
 
     elementos.contenedorOnda?.addEventListener("click", manejarClickOnda);
     elementos.contenedorOnda?.addEventListener("keydown", manejarTeclaOnda);
@@ -221,7 +223,6 @@ const AudioLab = (() => {
     elementos.nombreArchivo.textContent = archivo.name;
     elementos.tamanoArchivo.textContent = formatearBytes(archivo.size);
     elementos.tipoArchivo.textContent = archivo.type || inferirTipoPorNombre(archivo.name);
-    elementos.etiquetaDuracion.textContent = "00:00";
 
     actualizarEstadoReproductorOnda();
     dibujarOndaArchivo(archivo);
@@ -281,6 +282,30 @@ const AudioLab = (() => {
     }
 
     elementos.reproductorAudio.pause();
+  }
+
+  function cambiarVolumen() {
+    const audio = elementos.reproductorAudio;
+    const valor = Number(elementos.controlVolumen?.value || 0);
+    const siguienteVolumen = Math.max(0, Math.min(1, valor / 100));
+
+    audio.volume = Number(siguienteVolumen.toFixed(2));
+    audio.muted = audio.volume === 0;
+    actualizarControlVolumen();
+  }
+
+  function actualizarControlVolumen() {
+    const audio = elementos.reproductorAudio;
+    const volumen = audio.muted ? 0 : Math.round(audio.volume * 100);
+
+    if (elementos.etiquetaVolumen) {
+      elementos.etiquetaVolumen.textContent = `${volumen}%`;
+    }
+
+    if (elementos.controlVolumen) {
+      elementos.controlVolumen.value = String(volumen);
+      elementos.controlVolumen.style.setProperty("--volumen", `${volumen}%`);
+    }
   }
 
   function obtenerProgresoAudio() {
@@ -762,10 +787,15 @@ const AudioLab = (() => {
       const datosLogs = await respuestaLogs.json();
 
       estado.errorSistemaReportado = false;
+      actualizarPastillaSistema(elementos.estadoApiCabecera, "API conectada", true);
+      actualizarPastillaSistema(elementos.estadoRedisCabecera, "Redis conectado", true);
       mostrarWorkersSistema(datosWorkers);
       mostrarLogsSistema(datosLogs.logs);
     } catch (error) {
       console.error(error);
+      actualizarPastillaSistema(elementos.estadoApiCabecera, "API sin conexión", false);
+      actualizarPastillaSistema(elementos.estadoRedisCabecera, "Redis sin conexión", false);
+      actualizarPastillaSistema(elementos.estadoWorkersCabecera, "0 workers activos", false);
 
       if (!estado.errorSistemaReportado) {
         estado.errorSistemaReportado = true;
@@ -791,6 +821,13 @@ const AudioLab = (() => {
     }
 
     renderizarLogs();
+  }
+
+  function actualizarPastillaSistema(elemento, texto, conectado) {
+    if (!elemento) return;
+
+    elemento.classList.toggle("esta-desconectado", !conectado);
+    elemento.lastChild.textContent = ` ${texto}`;
   }
 
   function mostrarLogsSistema(logs) {
@@ -1546,7 +1583,11 @@ const AudioLab = (() => {
       entrada.classList.add(log.tipo);
     }
 
-    entrada.append(crearEtiquetaLog(log), document.createTextNode(formatearMensajeLog(log)));
+    const mensaje = document.createElement("span");
+    mensaje.className = "mensaje-log";
+    mensaje.textContent = formatearMensajeLog(log);
+
+    entrada.append(crearEtiquetaLog(log), mensaje);
     return entrada;
   }
 
