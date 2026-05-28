@@ -1209,8 +1209,65 @@ audio {
 }
 
 .lista-registros li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
   border-bottom: 1px solid rgba(247, 244, 239, 0.14);
   padding: 0.72rem 1rem;
+}
+
+.etiqueta-log {
+  flex: 0 0 auto;
+  min-width: 8.6rem;
+  border: 1px solid rgba(247, 244, 239, 0.26);
+  color: #101010;
+  padding: 0.12rem 0.35rem;
+  font-family: var(--fuente-mono);
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.etiqueta-log.interfaz {
+  background: #f7f4ef;
+}
+
+.etiqueta-log.sistema {
+  background: var(--acento-3);
+}
+
+.etiqueta-log.worker-0 {
+  background: #7cc9da;
+}
+
+.etiqueta-log.worker-1 {
+  background: #b28cff;
+}
+
+.etiqueta-log.worker-2 {
+  background: #64bf8b;
+}
+
+.etiqueta-log.worker-3 {
+  background: #e3bc65;
+}
+
+.etiqueta-log.worker-4 {
+  background: #f086c6;
+}
+
+.etiqueta-log.worker-5 {
+  background: #ff9f6e;
+}
+
+.etiqueta-log.worker-6 {
+  background: #d4df70;
+}
+
+.etiqueta-log.worker-7 {
+  background: #8fc7ff;
 }
 
 /* Historial local: trabajos terminados guardados en localStorage. */

@@ -32,6 +32,8 @@ redis_cliente = redis.Redis(
     decode_responses=True
 )
 
+ultimo_estado_reportado = None
+
 
 def guardar_estado_worker(estado, tarea_actual=""):
     # Cada worker reporta su estado en un hash propio: worker:<id>.
@@ -60,6 +62,27 @@ def agregar_log(mensaje):
     redis_cliente.ltrim(LISTA_LOGS, 0, 99)
 
     print(f"[{ID_WORKER}] {mensaje}")
+
+
+def reportar_estado_worker(estado, tarea_actual=""):
+    # El estado se actualiza siempre, pero el log solo cuando cambia para no llenar la consola.
+    global ultimo_estado_reportado
+
+    guardar_estado_worker(estado, tarea_actual)
+
+    firma_estado = (estado, tarea_actual or "")
+
+    if firma_estado == ultimo_estado_reportado:
+        return
+
+    ultimo_estado_reportado = firma_estado
+
+    if estado == "esperando":
+        agregar_log("esperando tareas")
+    elif tarea_actual:
+        agregar_log(f"{estado}: {tarea_actual}")
+    else:
+        agregar_log(estado)
 
 
 def canal_eventos_trabajo(id_trabajo):
@@ -107,10 +130,8 @@ def procesar_tarea(tarea):
     tarea["estado"] = "en proceso"
     tarea["progreso"] = 10
     tarea["worker"] = ID_WORKER
-    guardar_estado_worker("procesando", tarea["nombre"])
+    reportar_estado_worker("procesando", tarea["nombre"])
     guardar_estado_tarea(tarea)
-
-    agregar_log(f"procesando: {tarea['nombre']}")
 
     # Simulacion del avance real. Cuando haya procesamiento de audio, se actualiza aqui.
     for progreso in [30, 50, 70, 90]:
@@ -125,22 +146,20 @@ def procesar_tarea(tarea):
     tarea["error"] = None
     guardar_estado_tarea(tarea)
     agregar_log(f"completada: {tarea['nombre']}")
-    guardar_estado_worker("esperando")
+    reportar_estado_worker("esperando")
 
 
 def iniciar_worker():
     # Proceso largo: se queda esperando tareas hasta que se detenga manualmente.
-    guardar_estado_worker("esperando")
     agregar_log("worker iniciado")
-    agregar_log(f"esperando tareas en {COLA_TAREAS}")
+    reportar_estado_worker("esperando")
 
     while True:
         # BLPOP bloquea hasta 5 segundos; si no hay nada, vuelve a intentar sin gastar CPU de mas.
         resultado = redis_cliente.blpop(COLA_TAREAS, timeout=5)
 
         if resultado is None:
-            guardar_estado_worker("esperando")
-            agregar_log("sin tareas, esperando...")
+            reportar_estado_worker("esperando")
             continue
 
         nombre_cola, tarea_json = resultado
@@ -155,7 +174,7 @@ def iniciar_worker():
             tarea["worker"] = ID_WORKER
             guardar_estado_tarea(tarea)
             agregar_log(f"error en {tarea.get('nombre', 'tarea')}: {error}")
-            guardar_estado_worker("error", tarea.get("nombre", ""))
+            reportar_estado_worker("error", tarea.get("nombre", ""))
 
 
 if __name__ == "__main__":

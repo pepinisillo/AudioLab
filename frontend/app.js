@@ -82,6 +82,7 @@ const AudioLab = (() => {
     tareasActuales: [],
     logsLocales: [],
     logsSistema: [],
+    coloresWorkers: new Map(),
     eventosTrabajos: new Map(),
     intervaloTrabajos: null,
     intervaloSistema: null,
@@ -1046,7 +1047,7 @@ const AudioLab = (() => {
       ...estado.logsSistema
     ]
       .sort((a, b) => {
-        return Number(new Date(b.fecha || 0)) - Number(new Date(a.fecha || 0));
+        return Number(new Date(a.fecha || 0)) - Number(new Date(b.fecha || 0));
       })
       .slice(0, 100);
 
@@ -1061,20 +1062,41 @@ const AudioLab = (() => {
 
     logs.forEach((log) => {
       const entrada = document.createElement("li");
-      entrada.textContent = formatearLog(log);
+      entrada.append(crearEtiquetaLog(log), document.createTextNode(formatearMensajeLog(log)));
       elementos.listaLogs.append(entrada);
     });
+
+    elementos.listaLogs.scrollTop = elementos.listaLogs.scrollHeight;
   }
 
-  function formatearLog(log) {
+  function crearEtiquetaLog(log) {
+    const origen = log.worker || log.origen || "sistema";
+    const etiqueta = document.createElement("span");
+    etiqueta.className = `etiqueta-log ${claseWorkerLog(origen)}`;
+    etiqueta.textContent = origen;
+    return etiqueta;
+  }
+
+  function formatearMensajeLog(log) {
     const origen = log.worker || log.origen || "sistema";
     const mensaje = log.mensaje || "";
 
     if (log.local && mensaje.startsWith("[")) {
-      return mensaje;
+      return ` ${mensaje.replace(/^\[[^\]]+\]\s*/, "")}`;
     }
 
-    return `[${origen}] ${mensaje}`;
+    return ` ${mensaje}`;
+  }
+
+  function claseWorkerLog(origen) {
+    if (origen === "interfaz") return "interfaz";
+    if (origen === "sistema") return "sistema";
+
+    if (!estado.coloresWorkers.has(origen)) {
+      estado.coloresWorkers.set(origen, estado.coloresWorkers.size % 8);
+    }
+
+    return `worker-${estado.coloresWorkers.get(origen)}`;
   }
 
   async function limpiarRegistros() {
