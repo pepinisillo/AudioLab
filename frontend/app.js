@@ -1,7 +1,7 @@
 // Todo el frontend queda dentro de un solo modulo para no dejar variables sueltas en window.
 const AudioLab = (() => {
-  // Backend local de FastAPI. Si cambia el puerto o el host, se ajusta aqui.
-  const URL_API = "http://localhost:8000";
+  // Backend de FastAPI. En Docker usa el mismo host que abrio el navegador y el puerto publicado 8000.
+  const URL_API = obtenerUrlApi();
 
   // El historial vive en el navegador; Redis se usa para el trabajo actual.
   const CLAVE_HISTORIAL = "audiolab:historial-trabajos";
@@ -23,6 +23,23 @@ const AudioLab = (() => {
     "audio/mp4",
     "audio/x-m4a"
   ];
+
+  function obtenerUrlApi() {
+    // Permite sobreescribir desde index.html si algun dia se sirve detras de proxy o dominio fijo.
+    const urlConfigurada = window.AudioLabConfig?.urlApi;
+
+    if (urlConfigurada) {
+      return urlConfigurada.replace(/\/$/, "");
+    }
+
+    // Cuando el frontend se abre por http(s), el backend publicado por Docker vive en el mismo host.
+    if (window.location.protocol === "http:" || window.location.protocol === "https:") {
+      return `${window.location.protocol}//${window.location.hostname}:8000`;
+    }
+
+    // Si se abre como archivo local, no hay hostname; usamos el puerto publicado del compose.
+    return "http://localhost:8000";
+  }
 
   // Mapa central de elementos del DOM. Asi evitamos repetir querySelector por todo el archivo.
   const elementos = {
