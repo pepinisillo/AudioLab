@@ -1,4 +1,11 @@
+# Framework de la API HTTP.
 fastapi
+
+# Servidor ASGI para correr FastAPI en desarrollo.
 uvicorn[standard]
+
+# Necesario para recibir archivos y FormData en POST /trabajos.
 python-multipart
+
+# Cliente de Python para leer/escribir tareas en Redis.
 redis

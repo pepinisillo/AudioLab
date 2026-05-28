@@ -1,3 +1,4 @@
+/* Variables base del tema. Cambiar colores o fuentes aqui evita perseguir reglas sueltas. */
 :root {
   color-scheme: light;
   --fondo: #eceeed;
@@ -26,6 +27,7 @@
   --fuente-titulos: "Bodoni 72", Didot, "Baskerville", Georgia, serif;
 }
 
+/* Tema oscuro: solo sobreescribe variables para que el resto del CSS siga igual. */
 [data-tema="oscuro"] {
   color-scheme: dark;
   --fondo: #1d1d1d;
@@ -44,6 +46,7 @@
   --vidrio: rgba(29, 29, 29, 0.88);
 }
 
+/* Reset pequeño para que bordes, botones y foco se comporten parejo entre navegadores. */
 * {
   box-sizing: border-box;
 }
@@ -63,6 +66,7 @@ body {
   font-family: var(--fuente-cuerpo);
 }
 
+/* Marco exterior de la app. El borde fijo es decorativo y no recibe clicks. */
 body::before {
   content: "";
   position: fixed;
@@ -138,6 +142,7 @@ button {
   border: 0;
 }
 
+/* Contenedor global: controla el margen grande que respira alrededor de toda la interfaz. */
 .contenedor-app {
   width: 100%;
   max-width: none;
@@ -146,6 +151,7 @@ button {
   padding: 60px;
 }
 
+/* Cabecera de marca: la tarjeta grande superior con gradientes y sombra dura. */
 .barra-superior {
   position: relative;
   isolation: isolate;
@@ -268,6 +274,7 @@ button {
   line-height: 1.75;
 }
 
+/* Consola lateral de la cabecera: estado visual de API, Redis y workers. */
 .consola-estado {
   border-left: 1px solid var(--borde);
   background: var(--vidrio);
@@ -357,6 +364,7 @@ button {
   background: var(--advertencia);
 }
 
+/* Barra pegajosa de navegacion. El margen negativo la alinea con el marco exterior. */
 .barra-comandos {
   position: sticky;
   top: 30px;
@@ -483,6 +491,7 @@ button {
   letter-spacing: 0.08em;
 }
 
+/* Rejillas principales: definen como se acomodan carga, procesos, trabajo y monitoreo. */
 main {
   display: grid;
   gap: 1.5rem;
@@ -508,6 +517,7 @@ main {
   grid-template-columns: minmax(20rem, 0.58fr) minmax(0, 1fr);
 }
 
+/* Paneles reutilizables: misma caja, borde y sombra para mantener el lenguaje visual. */
 .panel {
   min-width: 0;
   border: 1px solid var(--borde);
@@ -582,6 +592,7 @@ main {
   background: var(--acento-1);
 }
 
+/* Carga de archivo y vista previa del audio original. */
 .panel-carga {
   display: grid;
   grid-template-rows: auto auto auto 1fr;
@@ -753,6 +764,7 @@ audio {
   min-height: 10rem;
 }
 
+/* Lista de procesos: cada opcion marcada se convierte en una tarea de Redis. */
 .panel-procesos {
   display: grid;
   grid-template-rows: auto 1fr auto;
@@ -834,6 +846,7 @@ audio {
   line-height: 1.45;
 }
 
+/* Botones y enlaces con pinta de accion. El icono se usa para borrar registros/historial/trabajo. */
 .boton-primario,
 .boton-secundario,
 .enlace-resultado {
@@ -926,6 +939,7 @@ audio {
   stroke-width: 1.8;
 }
 
+/* Bloques generados desde JavaScript: tablero de tareas, resultados e historial. */
 .tablero-tareas,
 .lista-resultados,
 .lista-historial {
@@ -949,6 +963,7 @@ audio {
   margin: 0;
 }
 
+/* Tarjeta de trabajo: agrupa tareas que comparten el mismo id_trabajo. */
 .tarjeta-trabajo {
   display: grid;
   position: relative;
@@ -1010,6 +1025,7 @@ audio {
   text-transform: uppercase;
 }
 
+/* Lista de tareas: usa fondo de borde y gap de 1px para tener lineas finas sin duplicarlas. */
 .lista-tareas {
   display: grid;
   gap: 1px;
@@ -1038,6 +1054,7 @@ audio {
   font-size: 1rem;
 }
 
+/* Barra de progreso: el ancho se controla desde JS con la variable --progreso. */
 .contenedor-progreso {
   width: 100%;
   height: 0.75rem;
@@ -1097,6 +1114,7 @@ audio {
   color: var(--opuesto);
 }
 
+/* Resultados finales cuando una tarea completada ofrece algo para abrir o reproducir. */
 .lista-resultados {
   display: grid;
   gap: 1px;
@@ -1134,6 +1152,7 @@ audio {
   font-size: 0.68rem;
 }
 
+/* Tablero numerico de estado general. Por ahora los valores son visuales/estaticos. */
 .grilla-metricas {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1175,6 +1194,7 @@ audio {
   line-height: 0.9;
 }
 
+/* Registros en vivo: consola local de eventos de interfaz y backend. */
 .lista-registros {
   height: 23rem;
   margin: 0;
@@ -1193,6 +1213,7 @@ audio {
   padding: 0.72rem 1rem;
 }
 
+/* Historial local: trabajos terminados guardados en localStorage. */
 .lista-historial {
   display: grid;
   gap: 1px;
@@ -1223,6 +1244,7 @@ audio {
   text-transform: uppercase;
 }
 
+/* Accesibilidad: si el sistema pide menos movimiento, se apagan transiciones y animaciones. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -1234,6 +1256,7 @@ audio {
   }
 }
 
+/* Responsive grande: se apilan columnas antes de que los paneles queden apretados. */
 @media (max-width: 1100px) {
   .barra-superior,
   .grilla-espacio-trabajo,
@@ -1261,6 +1284,7 @@ audio {
   }
 }
 
+/* Responsive tablet/movil: la cabecera y tarjetas pasan a una sola columna. */
 @media (max-width: 760px) {
   body::before {
     inset: 16px;
@@ -1345,6 +1369,7 @@ audio {
   }
 }
 
+/* Ajustes de telefonos angostos. */
 @media (max-width: 520px) {
   .titulo-marca {
     font-size: 4.25rem;

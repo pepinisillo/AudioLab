@@ -6,9 +6,13 @@ import redis
 import os
 import time
 
+# API principal: recibe el audio, crea tareas y las deja en Redis para que las tomen los workers.
 aplicacion = FastAPI(title="AudioLab API")
+
+# Alias comun para uvicorn/main.py. Mantener ambos nombres evita confusiones al arrancar.
 app = aplicacion
 
+# CORS abierto para desarrollo local: permite servir el frontend desde archivo o desde otro puerto.
 aplicacion.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,19 +21,25 @@ aplicacion.add_middleware(
     allow_headers=["*"],
 )
 
+# La conexion se puede configurar por variables de entorno si Redis corre en Docker u otra maquina.
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
 redis_cliente = redis.Redis(
     host=REDIS_HOST,
     port=REDIS_PORT,
+    # Redis devuelve strings en vez de bytes; asi no hay que decodificar en cada lectura.
     decode_responses=True
 )
 
+# Lista que funciona como cola real: el worker hace BLPOP y la tarea sale de aqui.
 COLA_TAREAS = "cola:tareas"
+
+# Indices para poder seguir mostrando tareas aunque ya hayan salido de la cola.
 INDICE_TAREAS = "tareas:ids"
 INDICE_TAREAS_SET = "tareas:ids:set"
 
+# Traduccion de nombres tecnicos a etiquetas legibles para la interfaz.
 NOMBRES_PROCESOS = {
     "transcripcion": "Transcripción",
     "lento": "Versión lenta",
@@ -41,6 +51,7 @@ NOMBRES_PROCESOS = {
 
 
 def guardar_tarea(tarea):
+    # Cada tarea vive tambien en su propia clave para consultar progreso e historial.
     tarea["actualizado_en"] = time.time()
     redis_cliente.set(
         f"tarea:{tarea['id_tarea']}",
@@ -49,6 +60,7 @@ def guardar_tarea(tarea):
 
 
 def registrar_tarea(tarea):
+    # El set evita IDs duplicados; la lista conserva el orden en que se crearon.
     if redis_cliente.sadd(INDICE_TAREAS_SET, tarea["id_tarea"]):
         redis_cliente.rpush(INDICE_TAREAS, tarea["id_tarea"])
 
@@ -56,11 +68,13 @@ def registrar_tarea(tarea):
 
 
 def cargar_tareas_guardadas():
+    # Fuente principal para la UI: todas las tareas conocidas, no solo las pendientes en cola.
     ids_tareas = redis_cliente.lrange(INDICE_TAREAS, 0, -1)
     tareas = []
     ids_vistos = set()
 
     if ids_tareas:
+        # mget lee muchas tareas en una sola llamada a Redis.
         claves = [f"tarea:{id_tarea}" for id_tarea in ids_tareas]
 
         for tarea_json in redis_cliente.mget(claves):
@@ -71,6 +85,7 @@ def cargar_tareas_guardadas():
             ids_vistos.add(tarea["id_tarea"])
             tareas.append(tarea)
 
+    # Respaldo para tareas que existan como tarea:* pero no esten en el indice.
     for clave in redis_cliente.scan_iter("tarea:*"):
         tarea_json = redis_cliente.get(clave)
 
@@ -86,6 +101,7 @@ def cargar_tareas_guardadas():
         ids_vistos.add(id_tarea)
         tareas.append(tarea)
 
+    # Compatibilidad: si hay tareas antiguas solo en la cola, tambien se muestran.
     for tarea_json in redis_cliente.lrange(COLA_TAREAS, 0, -1):
         tarea = json.loads(tarea_json)
         id_tarea = tarea.get("id_tarea")
@@ -101,6 +117,7 @@ def cargar_tareas_guardadas():
 
 @aplicacion.get("/")
 async def inicio():
+    # Endpoint rapido para saber si FastAPI esta vivo.
     return {
         "mensaje": "AudioLab API funcionando"
     }
@@ -111,6 +128,7 @@ async def crear_trabajo(
     audio: UploadFile = File(...),
     procesos: str = Form(...)
 ):
+    # Un trabajo representa un archivo; cada proceso elegido se convierte en una tarea.
     id_trabajo = str(uuid4())
 
     procesos_seleccionados = procesos.split(",")
@@ -118,6 +136,7 @@ async def crear_trabajo(
     tareas = []
 
     for proceso in procesos_seleccionados:
+        # Esta estructura es el contrato que comparten backend, worker y frontend.
         tarea = {
             "id_tarea": str(uuid4()),
             "id_trabajo": id_trabajo,
@@ -134,7 +153,11 @@ async def crear_trabajo(
         }
 
         tareas.append(tarea)
+
+        # Guardar primero permite que la UI vea la tarea aunque el worker la saque rapido de la cola.
         registrar_tarea(tarea)
+
+        # Esta es la entrada que consumen los workers con BLPOP.
         redis_cliente.rpush(COLA_TAREAS, json.dumps(tarea, ensure_ascii=False))
 
     return {
@@ -147,6 +170,7 @@ async def crear_trabajo(
 
 @aplicacion.get("/trabajos")
 async def listar_trabajos():
+    # Devuelve lo que la pantalla llama "Trabajo actual".
     tareas = cargar_tareas_guardadas()
 
     return {
@@ -157,6 +181,7 @@ async def listar_trabajos():
 
 @aplicacion.delete("/trabajos")
 async def limpiar_trabajos():
+    # Limpieza del trabajo actual: borra tareas persistidas, indices y pendientes de cola.
     tareas = cargar_tareas_guardadas()
     claves_tareas = [
         f"tarea:{tarea['id_tarea']}"
@@ -176,6 +201,7 @@ async def limpiar_trabajos():
 
 @app.get("/debug/cola")
 async def ver_cola():
+    # Debug puntual: muestra solo lo que sigue pendiente dentro de la cola Redis.
     tareas_guardadas = redis_cliente.lrange(COLA_TAREAS, 0, -1)
 
     return {
@@ -186,6 +212,7 @@ async def ver_cola():
 
 @aplicacion.get("/debug/redis")
 async def probar_redis():
+    # Ping simple para confirmar conexion con Redis.
     respuesta = redis_cliente.ping()
 
     return {

@@ -1,9 +1,17 @@
+// Todo el frontend queda dentro de un solo modulo para no dejar variables sueltas en window.
 const AudioLab = (() => {
+  // Backend local de FastAPI. Si cambia el puerto o el host, se ajusta aqui.
   const URL_API = "http://localhost:8000";
+
+  // El historial vive en el navegador; Redis se usa para el trabajo actual.
   const CLAVE_HISTORIAL = "audiolab:historial-trabajos";
+
+  // Guarda trabajos que ya se borraron del historial para que no reaparezcan
+  // mientras sigan existiendo en Redis.
   const CLAVE_HISTORIAL_OCULTO = "audiolab:historial-trabajos-ocultos";
   const MAXIMO_HISTORIAL = 40;
 
+  // Validamos por extension y por MIME porque algunos navegadores dejan el MIME vacio.
   const EXTENSIONES_ACEPTADAS = [".wav", ".mp3", ".ogg", ".m4a"];
 
   const TIPOS_ACEPTADOS = [
@@ -16,6 +24,7 @@ const AudioLab = (() => {
     "audio/x-m4a"
   ];
 
+  // Mapa central de elementos del DOM. Asi evitamos repetir querySelector por todo el archivo.
   const elementos = {
     zonaArrastre: document.querySelector("#zonaArrastre"),
     entradaArchivo: document.querySelector("#entradaArchivo"),
@@ -38,10 +47,12 @@ const AudioLab = (() => {
     botonLimpiarHistorial: document.querySelector("#botonLimpiarHistorial")
   };
 
+  // Checkboxes que definen cuantas tareas se van a crear para un trabajo.
   const entradasProcesos = Array.from(
     document.querySelectorAll(".opcion-proceso input")
   );
 
+  // Estado minimo de la interfaz. Redis sigue siendo la fuente del estado de las tareas.
   const estado = {
     archivo: null,
     urlAudio: null,
@@ -50,6 +61,7 @@ const AudioLab = (() => {
   };
 
   function iniciar() {
+    // Orden de arranque: eventos, estado visual inicial, historial local y luego Redis.
     conectarEventos();
     actualizarEstadoBoton();
     renderizarHistorial();
@@ -59,6 +71,7 @@ const AudioLab = (() => {
   }
 
   function conectarEventos() {
+    // El boton interno abre el file picker sin disparar dos veces el click de la zona.
     elementos.botonSeleccionarArchivo.addEventListener("click", (evento) => {
       evento.stopPropagation();
       elementos.entradaArchivo.click();
@@ -78,6 +91,7 @@ const AudioLab = (() => {
       }
     });
 
+    // Drag and drop solo cambia la UI hasta que realmente se suelta un archivo.
     elementos.zonaArrastre.addEventListener("dragover", (evento) => {
       evento.preventDefault();
       elementos.zonaArrastre.classList.add("is-dragging");
@@ -116,12 +130,14 @@ const AudioLab = (() => {
   }
 
   function manejarArchivo(archivo) {
+    // Se corta temprano para no crear vista previa ni enviar archivos no soportados.
     if (!esAudioAceptado(archivo)) {
       agregarLog(`[error] archivo rechazado: ${archivo.name}`);
       window.alert("Selecciona un archivo .wav, .mp3, .ogg o .m4a.");
       return;
     }
 
+    // Cada archivo nuevo crea una URL temporal; revocar la anterior evita fugas de memoria.
     if (estado.urlAudio) {
       URL.revokeObjectURL(estado.urlAudio);
     }
@@ -145,6 +161,7 @@ const AudioLab = (() => {
   }
 
   function esAudioAceptado(archivo) {
+    // No dependemos solo del MIME porque arrastrar archivos puede venir sin tipo confiable.
     const nombreArchivo = archivo.name.toLowerCase();
 
     const tieneExtensionValida = EXTENSIONES_ACEPTADAS.some((extension) => {
@@ -157,6 +174,7 @@ const AudioLab = (() => {
   }
 
   function inferirTipoPorNombre(nombreArchivo) {
+    // Texto de respaldo para mostrar en la ficha del archivo cuando el navegador no da MIME.
     const nombreMinusculas = nombreArchivo.toLowerCase();
 
     if (nombreMinusculas.endsWith(".wav")) return "audio/wav";
@@ -168,6 +186,7 @@ const AudioLab = (() => {
   }
 
   function obtenerProcesosSeleccionados() {
+    // El backend necesita el valor tecnico; la UI conserva tambien el nombre legible.
     return entradasProcesos
       .filter((entrada) => entrada.checked)
       .map((entrada) => {
@@ -182,6 +201,7 @@ const AudioLab = (() => {
   }
 
   function actualizarEstadoBoton() {
+    // No se puede crear trabajo sin archivo y sin al menos un proceso marcado.
     const procesosSeleccionados = obtenerProcesosSeleccionados();
     const cantidadSeleccionada = procesosSeleccionados.length;
 
@@ -203,6 +223,7 @@ const AudioLab = (() => {
   }
 
   async function enviarTrabajo() {
+    // Este es el punto donde la UI pasa de "configurar" a "crear tareas en Redis".
     if (!estado.archivo) return;
 
     const procesosSeleccionados = obtenerProcesosSeleccionados();
@@ -222,6 +243,7 @@ const AudioLab = (() => {
 
       console.log("Respuesta de FastAPI:", trabajo);
 
+      // Se consulta Redis inmediatamente para que aparezcan tareas aunque el worker las tome rapido.
       await cargarTrabajosRedis();
 
       agregarLog(`[servidor] trabajo creado: ${trabajo.id_trabajo}`);
@@ -236,6 +258,7 @@ const AudioLab = (() => {
   }
 
   async function crearTrabajoEnBackend(archivo, procesos) {
+    // FormData permite mandar el archivo y la lista de procesos en la misma peticion.
     const formulario = new FormData();
 
     formulario.append("audio", archivo);
@@ -256,6 +279,7 @@ const AudioLab = (() => {
   }
 
   async function cargarTrabajosRedis() {
+    // Polling simple: cada segundo pedimos al backend todas las tareas guardadas en Redis.
     try {
       const respuesta = await fetch(`${URL_API}/trabajos`);
 
@@ -275,6 +299,7 @@ const AudioLab = (() => {
   }
 
   async function limpiarTrabajoActual() {
+    // Solo borramos cuando ya no hay tareas pendientes o en proceso.
     if (!puedeLimpiarTrabajo(estado.tareasActuales)) {
       return;
     }
@@ -304,6 +329,7 @@ const AudioLab = (() => {
   }
 
   function mostrarTrabajosRedis(tareas) {
+    // Esta funcion reconstruye el tablero completo desde Redis; no intenta parchear el DOM viejo.
     estado.tareasActuales = tareas;
     elementos.tableroTareas.replaceChildren();
     actualizarBotonLimpiarTrabajo(tareas);
@@ -324,6 +350,7 @@ const AudioLab = (() => {
 
     elementos.tableroTareas.classList.remove("estado-vacio");
 
+    // Redis guarda tareas sueltas, pero la pantalla las muestra agrupadas por trabajo.
     const trabajosAgrupados = agruparTareasPorTrabajo(tareas);
     guardarTrabajosCompletadosEnHistorial(trabajosAgrupados);
 
@@ -365,6 +392,7 @@ const AudioLab = (() => {
   }
 
   function actualizarBotonLimpiarTrabajo(tareas) {
+    // El borrado de Redis se habilita al final para no pelearse con un worker activo.
     if (!elementos.botonLimpiarTrabajo) return;
 
     const hayTareas = Array.isArray(tareas) && tareas.length > 0;
@@ -381,10 +409,12 @@ const AudioLab = (() => {
   }
 
   function puedeLimpiarTrabajo(tareas) {
+    // El boton aparece siempre, pero solo se puede picar cuando todo termino.
     return Array.isArray(tareas) && tareas.length > 0 && tareas.every(tareaEstaTerminada);
   }
 
   function trabajoEstaTerminado(tareas) {
+    // Un trabajo con error tambien cuenta como terminado: ya no lo va a seguir procesando el worker.
     return Array.isArray(tareas) && tareas.length > 0 && tareas.every(tareaEstaTerminada);
   }
 
@@ -394,6 +424,7 @@ const AudioLab = (() => {
   }
 
   function guardarTrabajosCompletadosEnHistorial(trabajosAgrupados) {
+    // El historial se llena desde trabajos terminados, no desde cada tarea individual.
     const idsOcultos = leerIdsHistorialOcultos();
     const trabajosTerminados = trabajosAgrupados.filter((grupo) => {
       return trabajoEstaTerminado(grupo.tareas) && !idsOcultos.has(grupo.id_trabajo);
@@ -403,6 +434,7 @@ const AudioLab = (() => {
       return;
     }
 
+    // Se usa Map para actualizar el mismo trabajo sin duplicarlo si el polling vuelve a verlo.
     const historial = leerHistorial();
     const historialPorId = new Map(
       historial.map((item) => [item.id_trabajo, item])
@@ -432,6 +464,7 @@ const AudioLab = (() => {
   }
 
   function crearItemHistorial(grupo) {
+    // Compacta un trabajo completo a los datos que necesita la lista de historial.
     const tareas = Array.isArray(grupo.tareas) ? grupo.tareas : [];
     const completadas = tareas.filter((tarea) => claseEstado(tarea.estado) === "completada").length;
     const errores = tareas.filter((tarea) => claseEstado(tarea.estado) === "error").length;
@@ -448,6 +481,7 @@ const AudioLab = (() => {
   }
 
   function obtenerFechaTrabajo(tareas) {
+    // La fecha del trabajo es la ultima actualizacion entre sus tareas.
     const marcasTiempo = tareas
       .map((tarea) => Number(tarea.actualizado_en || tarea.creado_en))
       .filter(Number.isFinite);
@@ -460,6 +494,7 @@ const AudioLab = (() => {
   }
 
   function renderizarHistorial(historial = leerHistorial()) {
+    // Se renderiza desde localStorage para que sobreviva a refresh de pagina.
     if (!elementos.listaHistorial) return;
 
     elementos.listaHistorial.replaceChildren();
@@ -504,6 +539,7 @@ const AudioLab = (() => {
   }
 
   function actualizarBotonLimpiarHistorial(tieneHistorial) {
+    // El icono queda visible siempre; disabled comunica cuando no hay nada que borrar.
     if (!elementos.botonLimpiarHistorial) return;
 
     const titulo = tieneHistorial
@@ -516,6 +552,7 @@ const AudioLab = (() => {
   }
 
   function limpiarHistorial() {
+    // Si Redis aun conserva trabajos completados, se ocultan para que no reaparezcan al siguiente polling.
     const historial = leerHistorial();
     const idsOcultos = leerIdsHistorialOcultos();
 
@@ -536,6 +573,7 @@ const AudioLab = (() => {
   }
 
   function leerHistorial() {
+    // Cualquier problema leyendo localStorage deja la UI vacia, no rompe toda la app.
     try {
       const datos = JSON.parse(window.localStorage.getItem(CLAVE_HISTORIAL) || "[]");
       return Array.isArray(datos) ? datos : [];
@@ -546,6 +584,7 @@ const AudioLab = (() => {
   }
 
   function guardarHistorial(historial) {
+    // LocalStorage es suficiente por ahora: historial de pantalla, no historial del servidor.
     try {
       window.localStorage.setItem(CLAVE_HISTORIAL, JSON.stringify(historial));
     } catch (error) {
@@ -554,6 +593,7 @@ const AudioLab = (() => {
   }
 
   function borrarHistorialGuardado() {
+    // Borra solo el historial visible; los trabajos actuales siguen viviendo en Redis.
     try {
       window.localStorage.removeItem(CLAVE_HISTORIAL);
     } catch (error) {
@@ -562,6 +602,7 @@ const AudioLab = (() => {
   }
 
   function leerIdsHistorialOcultos() {
+    // Lista auxiliar para recordar que el usuario ya limpio esos trabajos del historial.
     try {
       const ids = JSON.parse(window.localStorage.getItem(CLAVE_HISTORIAL_OCULTO) || "[]");
       return new Set(Array.isArray(ids) ? ids : []);
@@ -572,6 +613,7 @@ const AudioLab = (() => {
   }
 
   function guardarIdsHistorialOcultos(ids) {
+    // Se guarda como array porque Set no se serializa directo a JSON.
     try {
       window.localStorage.setItem(CLAVE_HISTORIAL_OCULTO, JSON.stringify(Array.from(ids)));
     } catch (error) {
@@ -580,6 +622,7 @@ const AudioLab = (() => {
   }
 
   function crearTarjetaTarea(tarea) {
+    // Tarjeta visual de una sola tarea: nombre, estado, barra de progreso y accion final.
     const tarjeta = document.createElement("article");
     tarjeta.className = "tarjeta-tarea";
 
@@ -625,6 +668,7 @@ const AudioLab = (() => {
   }
 
   function normalizarTrabajoParaVista(trabajo) {
+    // Adaptador por si llega un trabajo entero en vez de tareas sueltas.
     const tareas = Array.isArray(trabajo.tareas) ? [...trabajo.tareas] : [];
 
     return {
@@ -635,6 +679,7 @@ const AudioLab = (() => {
   }
 
   function agruparTareasPorTrabajo(tareas) {
+    // Varias tareas pueden pertenecer al mismo archivo/trabajo; aqui se juntan para la UI.
     const grupos = new Map();
 
     tareas.forEach((tarea) => {
@@ -661,6 +706,7 @@ const AudioLab = (() => {
   }
 
   function normalizarTareaCola(tarea) {
+    // Normaliza campos viejos/nuevos para que el render no dependa del formato exacto de Redis.
     return {
       id_tarea: tarea.id_tarea,
       id_trabajo: tarea.id_trabajo,
@@ -677,6 +723,7 @@ const AudioLab = (() => {
   }
 
   function estadoGrupoTrabajo(tareas) {
+    // Estado resumido del trabajo completo para la insignia del encabezado.
     if (tareas.some((tarea) => claseEstado(tarea.estado) === "error")) {
       return "con errores";
     }
@@ -693,6 +740,7 @@ const AudioLab = (() => {
   }
 
   function normalizarProgreso(tarea) {
+    // Siempre regresamos un porcentaje seguro para la barra, aunque Redis mande texto o nada.
     const progreso = Number(tarea.progreso);
 
     if (Number.isFinite(progreso)) {
@@ -709,10 +757,12 @@ const AudioLab = (() => {
   }
 
   function abreviarId(id) {
+    // IDs largos sirven internamente; en pantalla con 8 caracteres alcanza para distinguir.
     return String(id || "").slice(0, 8);
   }
 
   function crearInsigniaEstado(estadoTarea) {
+    // La clase define color; el texto mantiene el estado legible.
     const insignia = document.createElement("span");
     insignia.className = `insignia-estado ${claseEstado(estadoTarea)}`;
     insignia.textContent = etiquetaEstado(estadoTarea);
@@ -721,6 +771,7 @@ const AudioLab = (() => {
   }
 
   function claseEstado(estadoTarea) {
+    // Acepta estados en español e ingles para no romper si cambia backend/worker.
     const normalizado = String(estadoTarea || "").trim().toLowerCase();
 
     if (normalizado === "pendiente" || normalizado === "pending") return "pendiente";
@@ -732,6 +783,7 @@ const AudioLab = (() => {
   }
 
   function etiquetaEstado(estadoTarea) {
+    // Traduce estados tecnicos a etiquetas de pantalla.
     const normalizado = String(estadoTarea || "").trim().toLowerCase();
 
     if (normalizado === "pending") return "pendiente";
@@ -742,6 +794,7 @@ const AudioLab = (() => {
   }
 
   function rellenarAccionesTarea(contenedor, tarea) {
+    // La accion final aparece solo cuando la tarea ya termino.
     contenedor.replaceChildren();
 
     if (tarea.estado !== "completada") {
@@ -757,6 +810,7 @@ const AudioLab = (() => {
   }
 
   function agregarLog(mensaje) {
+    // Los logs nuevos van arriba para ver lo ultimo sin bajar.
     if (!elementos.listaLogs) return;
 
     const entrada = document.createElement("li");
@@ -766,6 +820,7 @@ const AudioLab = (() => {
   }
 
   function limpiarRegistros() {
+    // Limpia solo la consola visual; no toca Redis ni el historial.
     if (!elementos.listaLogs) return;
 
     elementos.listaLogs.replaceChildren();
@@ -773,6 +828,7 @@ const AudioLab = (() => {
   }
 
   function formatearBytes(bytes) {
+    // Formato compacto para la ficha del archivo seleccionado.
     if (!Number.isFinite(bytes) || bytes === 0) {
       return "0 B";
     }
@@ -790,6 +846,7 @@ const AudioLab = (() => {
   }
 
   function formatearDuracion(segundos) {
+    // El reproductor entrega segundos; la UI muestra mm:ss.
     if (!Number.isFinite(segundos)) {
       return "00:00";
     }
@@ -801,6 +858,7 @@ const AudioLab = (() => {
   }
 
   function formatearFecha(marcaTiempo) {
+    // Redis usa segundos; si algun dato llega en milisegundos tambien lo aceptamos.
     const valor = Number(marcaTiempo);
 
     if (!Number.isFinite(valor)) {

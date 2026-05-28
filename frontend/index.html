@@ -8,6 +8,7 @@
   </head>
   <body>
     <div class="contenedor-app">
+      <!-- Cabecera principal: marca, estado general y bloque visual fijo de arriba. -->
       <header class="barra-superior">
         <div class="texto-cabecera">
           <p class="rotulo">AudioLab</p>
@@ -32,6 +33,7 @@
         </aside>
       </header>
 
+      <!-- Menu pegajoso: accesos internos, switch de tema y etiqueta de cola activa. -->
       <nav class="barra-comandos" aria-label="Navegación de AudioLab">
         <div class="celda-tema">
           <label class="interruptor-tema" title="Cambiar tema">
@@ -53,6 +55,7 @@
       </nav>
 
       <main>
+        <!-- Paso 1 y 2: entrada del archivo y seleccion de procesos que se convertiran en tareas. -->
         <section class="grilla-espacio-trabajo" aria-label="Carga y configuracion del audio">
           <article class="panel panel-carga">
             <div class="encabezado-panel">
@@ -111,6 +114,7 @@
               </div>
             </div>
 
+            <!-- Cada checkbox se manda al backend como una tarea separada dentro del mismo trabajo. -->
             <fieldset class="lista-procesos">
               <legend class="solo-lectores">Selecciona procesos de audio</legend>
               <label class="opcion-proceso">
@@ -172,6 +176,7 @@
           </aside>
         </section>
 
+        <!-- Trabajo actual: se reconstruye desde Redis para sobrevivir refresh y workers rapidos. -->
         <section class="grilla-trabajos" aria-label="Trabajo actual">
           <article class="panel panel-trabajo-actual" aria-labelledby="tituloTrabajoActual">
             <div class="encabezado-panel encabezado-compacto">
@@ -194,6 +199,7 @@
           </article>
         </section>
 
+        <!-- Monitoreo local: metricas visuales y consola de eventos de la interfaz. -->
         <section class="grilla-monitoreo" aria-label="Monitoreo e historial">
           <article class="panel panel-tablero">
             <div class="encabezado-panel encabezado-compacto">
@@ -245,6 +251,7 @@
           </article>
         </section>
 
+        <!-- Historial reciente: se guarda en localStorage, separado del trabajo actual en Redis. -->
         <section class="panel panel-historial" aria-labelledby="tituloHistorial">
           <div class="encabezado-panel encabezado-compacto">
             <div>
