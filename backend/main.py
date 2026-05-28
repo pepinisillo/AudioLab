@@ -2,7 +2,7 @@ from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from uuid import uuid4
 
-aplicacion = FastAPI(title="AudioLab Cola API")
+aplicacion = FastAPI(title="AudioLab API")
 app = aplicacion
 
 aplicacion.add_middleware(
@@ -26,7 +26,7 @@ NOMBRES_PROCESOS = {
 @aplicacion.get("/")
 async def inicio():
     return {
-        "mensaje": "AudioLab Cola API funcionando"
+        "mensaje": "AudioLab API funcionando"
     }
 
 
