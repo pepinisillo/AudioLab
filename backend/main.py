@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 from uuid import uuid4
 import asyncio
@@ -264,7 +264,7 @@ async def crear_signed_post(solicitud: SolicitudSignedPost):
 
     id_archivo = str(uuid4())
     nombre_seguro = os.path.basename(solicitud.nombre_archivo)
-    s3_key = f"audio/{id_archivo}-{nombre_seguro}"
+    s3_key = f"entradas/{id_archivo}-{nombre_seguro}"
 
     try:
         signed_post = s3_cliente.generate_presigned_post(
@@ -384,6 +384,46 @@ async def crear_trabajo_desde_s3(solicitud: SolicitudTrabajoS3):
         "estado": "pendiente",
         "tareas": tareas,
     }
+
+
+@aplicacion.get("/tareas/{id_tarea}/resultado")
+async def abrir_resultado_tarea(id_tarea: str):
+    # Crea una URL temporal al momento de abrir el resultado, sin hacer publico el bucket.
+    tarea_json = redis_cliente.get(f"tarea:{id_tarea}")
+
+    if not tarea_json:
+        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+
+    tarea = json.loads(tarea_json)
+    s3_key_resultado = tarea.get("resultado_s3_key") or tarea.get("resultado")
+
+    if not s3_key_resultado:
+        raise HTTPException(status_code=404, detail="La tarea no tiene resultado")
+
+    s3_bucket = tarea.get("s3_bucket") or S3_BUCKET
+
+    if not s3_bucket:
+        raise HTTPException(
+            status_code=500,
+            detail="S3_BUCKET no esta configurado en el backend"
+        )
+
+    try:
+        url_temporal = s3_cliente.generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": s3_bucket,
+                "Key": s3_key_resultado,
+            },
+            ExpiresIn=300
+        )
+    except (BotoCoreError, ClientError, NoCredentialsError) as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"No se pudo abrir el resultado de S3: {error}"
+        ) from error
+
+    return RedirectResponse(url_temporal)
 
 
 @aplicacion.get("/trabajos")

@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import time
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -26,6 +27,8 @@ INDICE_TAREAS_SET = "tareas:ids:set"
 
 # Cada proceso puede tener un ID fijo por entorno; si no se pasa, se genera uno corto.
 ID_WORKER = os.getenv("ID_WORKER", f"worker-{str(uuid4())[:8]}")
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+S3_BUCKET = os.getenv("S3_BUCKET", "")
 
 redis_cliente = redis.Redis(
     host=REDIS_HOST,
@@ -36,7 +39,7 @@ redis_cliente = redis.Redis(
 
 s3_cliente = boto3.client(
     "s3",
-    region_name=os.getenv("AWS_REGION", "us-east-1")
+    region_name=AWS_REGION
 )
 
 ultimo_estado_reportado = None
@@ -133,26 +136,137 @@ def guardar_estado_tarea(tarea):
     publicar_evento_tarea(tarea)
 
 
-def ruta_temporal_audio(tarea):
-    # Descargamos a /tmp porque es un espacio temporal seguro dentro del contenedor.
-    nombre_base = os.path.basename(tarea.get("s3_key", "audio"))
-    return os.path.join("/tmp", f"{tarea['id_tarea']}-{nombre_base}")
+def ruta_temporal_entrada(tarea):
+    # Preservar extension ayuda a ffmpeg a detectar mejor algunos formatos.
+    nombre_base = os.path.basename(
+        tarea.get("s3_key") or tarea.get("nombre_archivo") or "entrada"
+    )
+    extension = os.path.splitext(nombre_base)[1] or ".audio"
+
+    return os.path.join("/tmp", f"{tarea['id_tarea']}-entrada{extension}")
 
 
-def descargar_audio_s3(tarea):
-    # Por ahora solo confirmamos que el worker puede bajar el archivo desde S3.
-    s3_bucket = tarea.get("s3_bucket")
-    s3_key = tarea.get("s3_key")
+def obtener_bucket_tarea(tarea):
+    bucket = tarea.get("s3_bucket") or S3_BUCKET
 
-    if not s3_bucket or not s3_key:
-        agregar_log("tarea sin archivo S3, usando flujo simulado local")
-        return None
+    if not bucket:
+        raise ValueError("S3_BUCKET no esta configurado en el worker")
 
-    ruta_audio = ruta_temporal_audio(tarea)
-    s3_cliente.download_file(s3_bucket, s3_key, ruta_audio)
-    agregar_log(f"descargado desde S3: {s3_key}")
+    return bucket
 
-    return ruta_audio
+
+def descargar_desde_s3(s3_bucket, s3_key, ruta_local):
+    s3_cliente.download_file(s3_bucket, s3_key, ruta_local)
+
+
+def subir_a_s3(s3_bucket, ruta_local, s3_key_resultado, tipo_contenido):
+    s3_cliente.upload_file(
+        ruta_local,
+        s3_bucket,
+        s3_key_resultado,
+        ExtraArgs={
+            "ContentType": tipo_contenido
+        }
+    )
+
+
+def ejecutar_ffmpeg(argumentos):
+    # Capturar stderr deja errores utiles en Redis si ffmpeg no puede procesar el audio.
+    try:
+        subprocess.run(
+            argumentos,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+    except subprocess.CalledProcessError as error:
+        detalle = (error.stderr or error.stdout or str(error)).strip()
+        raise RuntimeError(detalle[-1200:]) from error
+
+
+def generar_resultado(tarea, ruta_entrada):
+    proceso = tarea["proceso"]
+    id_tarea = tarea["id_tarea"]
+
+    if proceso == "transcripcion":
+        ruta_salida = f"/tmp/{id_tarea}.txt"
+        s3_key_resultado = f"resultados/{id_tarea}.txt"
+
+        with open(ruta_salida, "w", encoding="utf-8") as archivo:
+            archivo.write("Transcripcion simulada del audio.\n")
+            archivo.write(
+                f"Archivo original: {tarea.get('nombre_archivo', 'desconocido')}\n"
+            )
+
+        return ruta_salida, s3_key_resultado, "text/plain"
+
+    if proceso == "lento":
+        ruta_salida = f"/tmp/{id_tarea}-lento.wav"
+        s3_key_resultado = f"resultados/{id_tarea}-lento.wav"
+
+        ejecutar_ffmpeg([
+            "ffmpeg", "-y",
+            "-i", ruta_entrada,
+            "-filter:a", "atempo=0.75",
+            ruta_salida
+        ])
+
+        return ruta_salida, s3_key_resultado, "audio/wav"
+
+    if proceso == "rapido":
+        ruta_salida = f"/tmp/{id_tarea}-rapido.wav"
+        s3_key_resultado = f"resultados/{id_tarea}-rapido.wav"
+
+        ejecutar_ffmpeg([
+            "ffmpeg", "-y",
+            "-i", ruta_entrada,
+            "-filter:a", "atempo=1.25",
+            ruta_salida
+        ])
+
+        return ruta_salida, s3_key_resultado, "audio/wav"
+
+    if proceso == "tono_grave":
+        ruta_salida = f"/tmp/{id_tarea}-grave.wav"
+        s3_key_resultado = f"resultados/{id_tarea}-grave.wav"
+
+        ejecutar_ffmpeg([
+            "ffmpeg", "-y",
+            "-i", ruta_entrada,
+            "-filter:a", "asetrate=44100*0.85,aresample=44100",
+            ruta_salida
+        ])
+
+        return ruta_salida, s3_key_resultado, "audio/wav"
+
+    if proceso == "tono_agudo":
+        ruta_salida = f"/tmp/{id_tarea}-agudo.wav"
+        s3_key_resultado = f"resultados/{id_tarea}-agudo.wav"
+
+        ejecutar_ffmpeg([
+            "ffmpeg", "-y",
+            "-i", ruta_entrada,
+            "-filter:a", "asetrate=44100*1.15,aresample=44100",
+            ruta_salida
+        ])
+
+        return ruta_salida, s3_key_resultado, "audio/wav"
+
+    if proceso == "onda":
+        ruta_salida = f"/tmp/{id_tarea}-onda.png"
+        s3_key_resultado = f"resultados/{id_tarea}-onda.png"
+
+        ejecutar_ffmpeg([
+            "ffmpeg", "-y",
+            "-i", ruta_entrada,
+            "-filter_complex", "showwavespic=s=1280x360",
+            "-frames:v", "1",
+            ruta_salida
+        ])
+
+        return ruta_salida, s3_key_resultado, "image/png"
+
+    raise ValueError(f"Proceso no soportado: {proceso}")
 
 
 def procesar_tarea(tarea):
@@ -160,25 +274,42 @@ def procesar_tarea(tarea):
     tarea["estado"] = "en proceso"
     tarea["progreso"] = 10
     tarea["worker"] = ID_WORKER
+    tarea["resultado"] = None
+    tarea["resultado_s3_key"] = None
+    tarea["tipo_resultado"] = None
+    tarea["error"] = None
     reportar_estado_worker("procesando", tarea["nombre"])
     guardar_estado_tarea(tarea)
 
-    ruta_audio = descargar_audio_s3(tarea)
+    s3_bucket = obtener_bucket_tarea(tarea)
+    s3_key = tarea.get("s3_key")
 
-    if ruta_audio:
-        tarea["archivo_local"] = ruta_audio
-        guardar_estado_tarea(tarea)
+    if not s3_key:
+        raise ValueError("La tarea no trae s3_key; crea el trabajo con /trabajos/s3")
 
-    # Simulacion del avance real. Cuando haya procesamiento de audio, se actualiza aqui.
-    for progreso in [30, 50, 70, 90]:
-        time.sleep(1)
-        tarea["progreso"] = progreso
-        guardar_estado_tarea(tarea)
+    ruta_entrada = ruta_temporal_entrada(tarea)
+    descargar_desde_s3(s3_bucket, s3_key, ruta_entrada)
+    agregar_log(f"audio descargado desde S3: {s3_key}")
 
-    # Resultado simulado: mantiene el contrato de salida mientras no exista el procesamiento real.
+    tarea["progreso"] = 35
+    guardar_estado_tarea(tarea)
+
+    ruta_salida, s3_key_resultado, tipo_contenido = generar_resultado(
+        tarea,
+        ruta_entrada
+    )
+
+    tarea["progreso"] = 75
+    guardar_estado_tarea(tarea)
+
+    subir_a_s3(s3_bucket, ruta_salida, s3_key_resultado, tipo_contenido)
+    agregar_log(f"resultado subido a S3: {s3_key_resultado}")
+
     tarea["estado"] = "completada"
     tarea["progreso"] = 100
-    tarea["resultado"] = f"Resultado simulado de {tarea['nombre']}"
+    tarea["resultado"] = s3_key_resultado
+    tarea["resultado_s3_key"] = s3_key_resultado
+    tarea["tipo_resultado"] = tipo_contenido
     tarea["error"] = None
     guardar_estado_tarea(tarea)
     agregar_log(f"completada: {tarea['nombre']}")

@@ -1002,11 +1002,27 @@ const AudioLab = (() => {
       progreso: tarea.progreso,
       worker: tarea.worker || null,
       resultado: tarea.resultado || null,
+      resultado_s3_key: tarea.resultado_s3_key || "",
+      tipo_resultado: tarea.tipo_resultado || "",
       error: tarea.error || null,
       s3_bucket: tarea.s3_bucket || "",
       s3_key: tarea.s3_key || "",
-      urlResultado: tarea.urlResultado || tarea.resultado || ""
+      urlResultado: obtenerUrlResultadoTarea(tarea)
     };
+  }
+
+  function obtenerUrlResultadoTarea(tarea) {
+    // Los resultados viven en S3; el backend genera una URL temporal cuando se abre el enlace.
+    const resultado = String(tarea.resultado || "");
+    const resultadoS3 = tarea.resultado_s3_key || (
+      resultado.startsWith("resultados/") ? resultado : ""
+    );
+
+    if (resultadoS3 && tarea.id_tarea) {
+      return `${URL_API}/tareas/${encodeURIComponent(tarea.id_tarea)}/resultado`;
+    }
+
+    return tarea.urlResultado || "";
   }
 
   function estadoGrupoTrabajo(tareas) {
@@ -1099,9 +1115,18 @@ const AudioLab = (() => {
     const enlace = document.createElement("a");
     enlace.className = "enlace-resultado";
     enlace.href = tarea.urlResultado || "#";
-    enlace.textContent = tarea.proceso === "onda" ? "ver onda" : "reproducir";
+    enlace.target = "_blank";
+    enlace.rel = "noopener";
+    enlace.textContent = obtenerTextoResultado(tarea);
 
     contenedor.append(enlace);
+  }
+
+  function obtenerTextoResultado(tarea) {
+    if (tarea.proceso === "onda") return "ver onda";
+    if (tarea.proceso === "transcripcion") return "ver texto";
+
+    return "reproducir";
   }
 
   function agregarLog(mensaje) {
