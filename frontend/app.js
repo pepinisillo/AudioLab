@@ -58,6 +58,12 @@ const AudioLab = (() => {
     resumenTrabajo: document.querySelector("#resumenTrabajo"),
     botonLimpiarTrabajo: document.querySelector("#botonLimpiarTrabajo"),
     tableroTareas: document.querySelector("#tableroTareas"),
+    estadoWorkersCabecera: document.querySelector(".pastilla-estado.esta-ocupado"),
+    metricaWorkers: document.querySelector("#metricaWorkers"),
+    metricaPendientes: document.querySelector("#metricaPendientes"),
+    metricaEnProceso: document.querySelector("#metricaEnProceso"),
+    metricaCompletadas: document.querySelector("#metricaCompletadas"),
+    metricaErrores: document.querySelector("#metricaErrores"),
     listaLogs: document.querySelector("#listaRegistros"),
     botonLimpiarRegistros: document.querySelector("#botonLimpiarRegistros"),
     listaHistorial: document.querySelector("#listaHistorial"),
@@ -74,8 +80,12 @@ const AudioLab = (() => {
     archivo: null,
     urlAudio: null,
     tareasActuales: [],
+    logsLocales: [],
+    logsSistema: [],
     eventosTrabajos: new Map(),
-    intervaloTrabajos: null
+    intervaloTrabajos: null,
+    intervaloSistema: null,
+    errorSistemaReportado: false
   };
 
   function iniciar() {
@@ -84,6 +94,8 @@ const AudioLab = (() => {
     actualizarEstadoBoton();
     renderizarHistorial();
     cargarTrabajosRedis();
+    cargarEstadoSistema();
+    estado.intervaloSistema = window.setInterval(cargarEstadoSistema, 2000);
 
     if (!("EventSource" in window)) {
       estado.intervaloTrabajos = window.setInterval(cargarTrabajosRedis, 1000);
@@ -321,6 +333,58 @@ const AudioLab = (() => {
     }
   }
 
+  async function cargarEstadoSistema() {
+    // Workers y logs viven en Redis; el backend los expone en endpoints separados.
+    try {
+      const [respuestaWorkers, respuestaLogs] = await Promise.all([
+        fetch(`${URL_API}/workers`),
+        fetch(`${URL_API}/logs`)
+      ]);
+
+      if (!respuestaWorkers.ok) {
+        throw new Error(`GET /workers respondió ${respuestaWorkers.status}`);
+      }
+
+      if (!respuestaLogs.ok) {
+        throw new Error(`GET /logs respondió ${respuestaLogs.status}`);
+      }
+
+      const datosWorkers = await respuestaWorkers.json();
+      const datosLogs = await respuestaLogs.json();
+
+      estado.errorSistemaReportado = false;
+      mostrarWorkersSistema(datosWorkers);
+      mostrarLogsSistema(datosLogs.logs);
+    } catch (error) {
+      console.error(error);
+
+      if (!estado.errorSistemaReportado) {
+        estado.errorSistemaReportado = true;
+        agregarLog(`[error] no se pudo leer el estado del sistema: ${error.message}`);
+      }
+    }
+  }
+
+  function mostrarWorkersSistema(datosWorkers) {
+    const workers = Array.isArray(datosWorkers.workers) ? datosWorkers.workers : [];
+    const activos = Number.isFinite(Number(datosWorkers.activos))
+      ? Number(datosWorkers.activos)
+      : workers.filter((worker) => worker.activo).length;
+
+    if (elementos.metricaWorkers) {
+      elementos.metricaWorkers.textContent = String(activos);
+    }
+
+    if (elementos.estadoWorkersCabecera) {
+      elementos.estadoWorkersCabecera.lastChild.textContent = ` ${activos} workers activos`;
+    }
+  }
+
+  function mostrarLogsSistema(logs) {
+    estado.logsSistema = Array.isArray(logs) ? logs : [];
+    renderizarLogs();
+  }
+
   function sincronizarEventosTrabajos(trabajosAgrupados) {
     // Abre una conexion SSE por trabajo activo y cierra las que ya no hacen falta.
     if (!("EventSource" in window)) return;
@@ -452,6 +516,7 @@ const AudioLab = (() => {
     // Esta funcion reconstruye el tablero completo desde Redis; no intenta parchear el DOM viejo.
     estado.tareasActuales = tareas;
     elementos.tableroTareas.replaceChildren();
+    actualizarMetricasTareas(tareas);
     actualizarBotonLimpiarTrabajo(tareas);
 
     if (elementos.resumenTrabajo) {
@@ -511,6 +576,36 @@ const AudioLab = (() => {
       tarjetaTrabajo.append(encabezado, listaTareas);
       elementos.tableroTareas.append(tarjetaTrabajo);
     });
+  }
+
+  function actualizarMetricasTareas(tareas) {
+    // Metricas del tablero calculadas desde las tareas que llegaron de Redis.
+    const conteo = {
+      pendiente: 0,
+      "en-proceso": 0,
+      completada: 0,
+      error: 0
+    };
+
+    tareas.forEach((tarea) => {
+      conteo[claseEstado(tarea.estado)] += 1;
+    });
+
+    if (elementos.metricaPendientes) {
+      elementos.metricaPendientes.textContent = String(conteo.pendiente);
+    }
+
+    if (elementos.metricaEnProceso) {
+      elementos.metricaEnProceso.textContent = String(conteo["en-proceso"]);
+    }
+
+    if (elementos.metricaCompletadas) {
+      elementos.metricaCompletadas.textContent = String(conteo.completada);
+    }
+
+    if (elementos.metricaErrores) {
+      elementos.metricaErrores.textContent = String(conteo.error);
+    }
   }
 
   function actualizarBotonLimpiarTrabajo(tareas) {
@@ -932,20 +1027,76 @@ const AudioLab = (() => {
   }
 
   function agregarLog(mensaje) {
-    // Los logs nuevos van arriba para ver lo ultimo sin bajar.
-    if (!elementos.listaLogs) return;
+    // Logs locales de interfaz; se mezclan con los logs que vienen de Redis.
+    estado.logsLocales.unshift({
+      origen: "interfaz",
+      mensaje,
+      fecha: new Date().toISOString()
+    });
 
-    const entrada = document.createElement("li");
-    entrada.textContent = mensaje;
-
-    elementos.listaLogs.prepend(entrada);
+    estado.logsLocales = estado.logsLocales.slice(0, 30);
+    renderizarLogs();
   }
 
-  function limpiarRegistros() {
-    // Limpia solo la consola visual; no toca Redis ni el historial.
+  function renderizarLogs() {
     if (!elementos.listaLogs) return;
 
+    const logs = [
+      ...estado.logsLocales.map((log) => ({ ...log, local: true })),
+      ...estado.logsSistema
+    ]
+      .sort((a, b) => {
+        return Number(new Date(b.fecha || 0)) - Number(new Date(a.fecha || 0));
+      })
+      .slice(0, 100);
+
     elementos.listaLogs.replaceChildren();
+
+    if (logs.length === 0) {
+      const entrada = document.createElement("li");
+      entrada.textContent = "[sistema] listo para recibir trabajos...";
+      elementos.listaLogs.append(entrada);
+      return;
+    }
+
+    logs.forEach((log) => {
+      const entrada = document.createElement("li");
+      entrada.textContent = formatearLog(log);
+      elementos.listaLogs.append(entrada);
+    });
+  }
+
+  function formatearLog(log) {
+    const origen = log.worker || log.origen || "sistema";
+    const mensaje = log.mensaje || "";
+
+    if (log.local && mensaje.startsWith("[")) {
+      return mensaje;
+    }
+
+    return `[${origen}] ${mensaje}`;
+  }
+
+  async function limpiarRegistros() {
+    // Limpia la consola visual y tambien la lista logs:sistema de Redis.
+    estado.logsLocales = [];
+    estado.logsSistema = [];
+    renderizarLogs();
+
+    try {
+      const respuesta = await fetch(`${URL_API}/logs`, {
+        method: "DELETE"
+      });
+
+      if (!respuesta.ok) {
+        throw new Error(`DELETE /logs respondió ${respuesta.status}`);
+      }
+    } catch (error) {
+      console.error(error);
+      agregarLog(`[error] no se pudieron limpiar los registros: ${error.message}`);
+      return;
+    }
+
     agregarLog("[sistema] registros limpiados");
   }
 

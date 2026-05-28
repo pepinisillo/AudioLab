@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import redis
@@ -12,6 +13,10 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
 # Cola real de pendientes. BLPOP saca una tarea de aqui cuando un worker la toma.
 COLA_TAREAS = "cola:tareas"
+
+# Estado de workers y logs compartidos para que FastAPI pueda mostrarlos despues.
+PREFIJO_WORKER = "worker:"
+LISTA_LOGS = "logs:sistema"
 
 # Indices compartidos con la API para que la pantalla pueda ver progreso e historial.
 INDICE_TAREAS = "tareas:ids"
@@ -26,6 +31,35 @@ redis_cliente = redis.Redis(
     # Trabajar con strings simplifica json.loads/json.dumps.
     decode_responses=True
 )
+
+
+def guardar_estado_worker(estado, tarea_actual=""):
+    # Cada worker reporta su estado en un hash propio: worker:<id>.
+    clave = f"{PREFIJO_WORKER}{ID_WORKER}"
+
+    redis_cliente.hset(
+        clave,
+        mapping={
+            "id": ID_WORKER,
+            "estado": estado,
+            "tarea_actual": tarea_actual or "",
+            "ultima_vez": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+
+def agregar_log(mensaje):
+    # Guarda logs recientes en Redis y tambien los manda a stdout para Docker.
+    entrada = {
+        "worker": ID_WORKER,
+        "mensaje": mensaje,
+        "fecha": datetime.now(timezone.utc).isoformat(),
+    }
+
+    redis_cliente.lpush(LISTA_LOGS, json.dumps(entrada, ensure_ascii=False))
+    redis_cliente.ltrim(LISTA_LOGS, 0, 99)
+
+    print(f"[{ID_WORKER}] {mensaje}")
 
 
 def canal_eventos_trabajo(id_trabajo):
@@ -73,9 +107,10 @@ def procesar_tarea(tarea):
     tarea["estado"] = "en proceso"
     tarea["progreso"] = 10
     tarea["worker"] = ID_WORKER
+    guardar_estado_worker("procesando", tarea["nombre"])
     guardar_estado_tarea(tarea)
 
-    print(f"[{ID_WORKER}] procesando: {tarea['nombre']}")
+    agregar_log(f"procesando: {tarea['nombre']}")
 
     # Simulacion del avance real. Cuando haya procesamiento de audio, se actualiza aqui.
     for progreso in [30, 50, 70, 90]:
@@ -89,21 +124,23 @@ def procesar_tarea(tarea):
     tarea["resultado"] = f"Resultado simulado de {tarea['nombre']}"
     tarea["error"] = None
     guardar_estado_tarea(tarea)
-
-    print(f"[{ID_WORKER}] completada: {tarea['nombre']}")
+    agregar_log(f"completada: {tarea['nombre']}")
+    guardar_estado_worker("esperando")
 
 
 def iniciar_worker():
     # Proceso largo: se queda esperando tareas hasta que se detenga manualmente.
-    print(f"[{ID_WORKER}] worker iniciado")
-    print(f"[{ID_WORKER}] esperando tareas en {COLA_TAREAS}")
+    guardar_estado_worker("esperando")
+    agregar_log("worker iniciado")
+    agregar_log(f"esperando tareas en {COLA_TAREAS}")
 
     while True:
         # BLPOP bloquea hasta 5 segundos; si no hay nada, vuelve a intentar sin gastar CPU de mas.
         resultado = redis_cliente.blpop(COLA_TAREAS, timeout=5)
 
         if resultado is None:
-            print(f"[{ID_WORKER}] sin tareas, esperando...")
+            guardar_estado_worker("esperando")
+            agregar_log("sin tareas, esperando...")
             continue
 
         nombre_cola, tarea_json = resultado
@@ -117,8 +154,8 @@ def iniciar_worker():
             tarea["error"] = str(error)
             tarea["worker"] = ID_WORKER
             guardar_estado_tarea(tarea)
-
-            print(f"[{ID_WORKER}] error: {error}")
+            agregar_log(f"error en {tarea.get('nombre', 'tarea')}: {error}")
+            guardar_estado_worker("error", tarea.get("nombre", ""))
 
 
 if __name__ == "__main__":

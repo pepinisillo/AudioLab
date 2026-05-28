@@ -7,6 +7,7 @@ import json
 import redis
 import os
 import time
+from datetime import datetime, timezone
 
 # API principal: recibe el audio, crea tareas y las deja en Redis para que las tomen los workers.
 aplicacion = FastAPI(title="AudioLab API")
@@ -37,6 +38,11 @@ redis_cliente = redis.Redis(
 # Lista que funciona como cola real: el worker hace BLPOP y la tarea sale de aqui.
 COLA_TAREAS = "cola:tareas"
 
+# Estado de workers y logs escritos por worker.py.
+PREFIJO_WORKER = "worker:"
+LISTA_LOGS = "logs:sistema"
+SEGUNDOS_WORKER_ACTIVO = 15
+
 # Indices para poder seguir mostrando tareas aunque ya hayan salido de la cola.
 INDICE_TAREAS = "tareas:ids"
 INDICE_TAREAS_SET = "tareas:ids:set"
@@ -55,6 +61,68 @@ NOMBRES_PROCESOS = {
 def canal_eventos_trabajo(id_trabajo):
     # Debe coincidir con el canal donde publica el worker.
     return f"trabajo:{id_trabajo}:eventos"
+
+
+def leer_fecha_utc(valor):
+    # Los workers guardan fechas ISO en UTC; si algo viene raro, se ignora sin romper la API.
+    if not valor:
+        return None
+
+    try:
+        fecha = datetime.fromisoformat(str(valor).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+    if fecha.tzinfo is None:
+        fecha = fecha.replace(tzinfo=timezone.utc)
+
+    return fecha.astimezone(timezone.utc)
+
+
+def cargar_workers():
+    # Lee los hashes worker:<id> que reporta cada worker.
+    workers = []
+    ahora = datetime.now(timezone.utc)
+
+    for clave in redis_cliente.scan_iter(f"{PREFIJO_WORKER}*"):
+        datos = redis_cliente.hgetall(clave)
+
+        if not datos:
+            continue
+
+        ultima_vez = leer_fecha_utc(datos.get("ultima_vez"))
+        segundos_desde_ultima_vez = None
+
+        if ultima_vez:
+            segundos_desde_ultima_vez = (ahora - ultima_vez).total_seconds()
+
+        datos["activo"] = (
+            segundos_desde_ultima_vez is not None
+            and segundos_desde_ultima_vez <= SEGUNDOS_WORKER_ACTIVO
+        )
+        datos["segundos_desde_ultima_vez"] = segundos_desde_ultima_vez
+        workers.append(datos)
+
+    return sorted(workers, key=lambda worker: worker.get("id", ""))
+
+
+def cargar_logs(limite=100):
+    # Los logs se guardan como JSON en una lista Redis, del mas nuevo al mas viejo.
+    limite = max(1, min(int(limite), 100))
+    entradas = redis_cliente.lrange(LISTA_LOGS, 0, limite - 1)
+    logs = []
+
+    for entrada_json in entradas:
+        try:
+            logs.append(json.loads(entrada_json))
+        except json.JSONDecodeError:
+            logs.append({
+                "worker": "sistema",
+                "mensaje": entrada_json,
+                "fecha": None,
+            })
+
+    return logs
 
 
 def guardar_tarea(tarea):
@@ -210,6 +278,40 @@ async def listar_trabajos():
     return {
         "cantidad": len(tareas),
         "tareas": tareas
+    }
+
+
+@aplicacion.get("/workers")
+async def listar_workers():
+    # Estado actual de los workers reportado en Redis.
+    workers = cargar_workers()
+    activos = [worker for worker in workers if worker.get("activo")]
+
+    return {
+        "cantidad": len(workers),
+        "activos": len(activos),
+        "workers": workers
+    }
+
+
+@aplicacion.get("/logs")
+async def listar_logs(limite: int = 100):
+    # Ultimos eventos escritos por los workers en logs:sistema.
+    logs = cargar_logs(limite)
+
+    return {
+        "cantidad": len(logs),
+        "logs": logs
+    }
+
+
+@aplicacion.delete("/logs")
+async def limpiar_logs():
+    # Limpia los registros de workers; no toca tareas ni estados de trabajo.
+    eliminados = redis_cliente.delete(LISTA_LOGS)
+
+    return {
+        "eliminados": eliminados
     }
 
 
