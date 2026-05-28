@@ -57,6 +57,7 @@ const AudioLab = (() => {
     archivo: null,
     urlAudio: null,
     tareasActuales: [],
+    eventosTrabajos: new Map(),
     intervaloTrabajos: null
   };
 
@@ -66,7 +67,12 @@ const AudioLab = (() => {
     actualizarEstadoBoton();
     renderizarHistorial();
     cargarTrabajosRedis();
-    estado.intervaloTrabajos = window.setInterval(cargarTrabajosRedis, 1000);
+
+    if (!("EventSource" in window)) {
+      estado.intervaloTrabajos = window.setInterval(cargarTrabajosRedis, 1000);
+      agregarLog("[sistema] SSE no disponible; usando actualizacion por intervalo");
+    }
+
     agregarLog("[sistema] interfaz lista");
   }
 
@@ -279,7 +285,7 @@ const AudioLab = (() => {
   }
 
   async function cargarTrabajosRedis() {
-    // Polling simple: cada segundo pedimos al backend todas las tareas guardadas en Redis.
+    // Carga inicial y respaldo manual: SSE se encarga de los cambios despues de conectar.
     try {
       const respuesta = await fetch(`${URL_API}/trabajos`);
 
@@ -296,6 +302,103 @@ const AudioLab = (() => {
       agregarLog(`[error] no se pudieron leer los trabajos de Redis: ${error.message}`);
       mostrarTrabajosRedis([]);
     }
+  }
+
+  function sincronizarEventosTrabajos(trabajosAgrupados) {
+    // Abre una conexion SSE por trabajo activo y cierra las que ya no hacen falta.
+    if (!("EventSource" in window)) return;
+
+    const idsVisibles = new Set(
+      trabajosAgrupados
+        .filter((grupo) => !trabajoEstaTerminado(grupo.tareas))
+        .map((grupo) => grupo.id_trabajo)
+        .filter((idTrabajo) => idTrabajo && idTrabajo !== "sin-trabajo")
+    );
+
+    Array.from(estado.eventosTrabajos.keys()).forEach((idTrabajo) => {
+      if (!idsVisibles.has(idTrabajo)) {
+        cerrarEventosTrabajo(idTrabajo);
+      }
+    });
+
+    idsVisibles.forEach((idTrabajo) => {
+      abrirEventosTrabajo(idTrabajo);
+    });
+  }
+
+  function abrirEventosTrabajo(idTrabajo) {
+    if (estado.eventosTrabajos.has(idTrabajo)) return;
+
+    const fuente = new EventSource(
+      `${URL_API}/trabajos/${encodeURIComponent(idTrabajo)}/eventos`
+    );
+
+    const conexion = {
+      fuente,
+      errorReportado: false
+    };
+
+    fuente.addEventListener("conexion", () => {
+      conexion.errorReportado = false;
+      agregarLog(`[sse] escuchando trabajo ${abreviarId(idTrabajo)}`);
+    });
+
+    fuente.addEventListener("tarea_actualizada", (evento) => {
+      try {
+        const datos = JSON.parse(evento.data);
+        aplicarEventoTarea(datos);
+      } catch (error) {
+        console.error(error);
+        agregarLog(`[error] evento SSE invalido: ${error.message}`);
+      }
+    });
+
+    fuente.onerror = () => {
+      if (conexion.errorReportado) return;
+
+      conexion.errorReportado = true;
+      agregarLog(`[sse] reconectando trabajo ${abreviarId(idTrabajo)}`);
+    };
+
+    estado.eventosTrabajos.set(idTrabajo, conexion);
+  }
+
+  function cerrarEventosTrabajo(idTrabajo) {
+    const conexion = estado.eventosTrabajos.get(idTrabajo);
+
+    if (!conexion) return;
+
+    conexion.fuente.close();
+    estado.eventosTrabajos.delete(idTrabajo);
+  }
+
+  function cerrarTodosLosEventosTrabajo() {
+    Array.from(estado.eventosTrabajos.keys()).forEach(cerrarEventosTrabajo);
+  }
+
+  function aplicarEventoTarea(evento) {
+    // El worker manda la tarea completa; con eso actualizamos la tarjeta sin pedir /trabajos otra vez.
+    const tareaActualizada = evento.tarea || evento;
+
+    if (!tareaActualizada.id_tarea) {
+      return;
+    }
+
+    const tareas = [...estado.tareasActuales];
+    const indice = tareas.findIndex((tarea) => {
+      return tarea.id_tarea === tareaActualizada.id_tarea;
+    });
+
+    if (indice >= 0) {
+      tareas[indice] = {
+        ...tareas[indice],
+        ...tareaActualizada
+      };
+    } else {
+      tareas.push(tareaActualizada);
+    }
+
+    mostrarTrabajosRedis(tareas);
   }
 
   async function limpiarTrabajoActual() {
@@ -340,6 +443,7 @@ const AudioLab = (() => {
 
     if (tareas.length === 0) {
       elementos.tableroTareas.classList.add("estado-vacio");
+      cerrarTodosLosEventosTrabajo();
 
       const mensaje = document.createElement("p");
       mensaje.textContent = "No hay tareas registradas en Redis.";
@@ -352,6 +456,7 @@ const AudioLab = (() => {
 
     // Redis guarda tareas sueltas, pero la pantalla las muestra agrupadas por trabajo.
     const trabajosAgrupados = agruparTareasPorTrabajo(tareas);
+    sincronizarEventosTrabajos(trabajosAgrupados);
     guardarTrabajosCompletadosEnHistorial(trabajosAgrupados);
 
     trabajosAgrupados.forEach((grupo) => {
@@ -552,7 +657,7 @@ const AudioLab = (() => {
   }
 
   function limpiarHistorial() {
-    // Si Redis aun conserva trabajos completados, se ocultan para que no reaparezcan al siguiente polling.
+    // Si Redis aun conserva trabajos completados, se ocultan para que no reaparezcan al siguiente refresco.
     const historial = leerHistorial();
     const idsOcultos = leerIdsHistorialOcultos();
 

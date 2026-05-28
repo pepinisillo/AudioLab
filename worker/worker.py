@@ -28,6 +28,34 @@ redis_cliente = redis.Redis(
 )
 
 
+def canal_eventos_trabajo(id_trabajo):
+    # Canal Pub/Sub dedicado a un trabajo; FastAPI lo escucha y lo reenvia por SSE.
+    return f"trabajo:{id_trabajo}:eventos"
+
+
+def publicar_evento_tarea(tarea):
+    # El evento incluye la tarea completa para que el frontend pueda actualizar sin volver a pedir todo.
+    id_trabajo = tarea.get("id_trabajo")
+
+    if not id_trabajo:
+        return
+
+    evento = {
+        "tipo": "tarea_actualizada",
+        "id_trabajo": id_trabajo,
+        "id_tarea": tarea.get("id_tarea"),
+        "estado": tarea.get("estado"),
+        "progreso": tarea.get("progreso"),
+        "worker": tarea.get("worker"),
+        "tarea": tarea,
+    }
+
+    redis_cliente.publish(
+        canal_eventos_trabajo(id_trabajo),
+        json.dumps(evento, ensure_ascii=False)
+    )
+
+
 def guardar_estado_tarea(tarea):
     # Registrar aqui tambien protege el caso donde el worker reciba una tarea antigua sin indice.
     if redis_cliente.sadd(INDICE_TAREAS_SET, tarea["id_tarea"]):
@@ -37,6 +65,7 @@ def guardar_estado_tarea(tarea):
     tarea["actualizado_en"] = time.time()
     clave = f"tarea:{tarea['id_tarea']}"
     redis_cliente.set(clave, json.dumps(tarea, ensure_ascii=False))
+    publicar_evento_tarea(tarea)
 
 
 def procesar_tarea(tarea):

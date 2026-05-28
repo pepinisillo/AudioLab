@@ -1,6 +1,8 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from uuid import uuid4
+import asyncio
 import json
 import redis
 import os
@@ -48,6 +50,11 @@ NOMBRES_PROCESOS = {
     "tono_agudo": "Tono agudo",
     "onda": "Generar onda",
 }
+
+
+def canal_eventos_trabajo(id_trabajo):
+    # Debe coincidir con el canal donde publica el worker.
+    return f"trabajo:{id_trabajo}:eventos"
 
 
 def guardar_tarea(tarea):
@@ -115,6 +122,33 @@ def cargar_tareas_guardadas():
     return tareas
 
 
+def calcular_estado_trabajo(tareas):
+    # El estado del trabajo se resume desde sus tareas: primero lo activo, luego pendientes/errores.
+    estados = [
+        str(tarea.get("estado", "pendiente")).strip().lower()
+        for tarea in tareas
+    ]
+
+    if any(estado in ("en proceso", "en_proceso", "running") for estado in estados):
+        return "en proceso"
+
+    if any(estado in ("pendiente", "pending") for estado in estados):
+        return "pendiente"
+
+    if "error" in estados:
+        return "error"
+
+    return "completada"
+
+
+def formatear_evento_sse(nombre_evento, datos):
+    # Formato SSE: cada evento termina con una linea vacia para que EventSource lo entregue.
+    return (
+        f"event: {nombre_evento}\n"
+        f"data: {json.dumps(datos, ensure_ascii=False)}\n\n"
+    )
+
+
 @aplicacion.get("/")
 async def inicio():
     # Endpoint rapido para saber si FastAPI esta vivo.
@@ -177,6 +211,83 @@ async def listar_trabajos():
         "cantidad": len(tareas),
         "tareas": tareas
     }
+
+
+@aplicacion.get("/trabajos/{id_trabajo}")
+async def obtener_trabajo(id_trabajo: str):
+    # Consulta enfocada: misma fuente que /trabajos, pero filtrada por un solo id_trabajo.
+    tareas = [
+        tarea
+        for tarea in cargar_tareas_guardadas()
+        if tarea.get("id_trabajo") == id_trabajo
+    ]
+
+    if not tareas:
+        return {
+            "id_trabajo": id_trabajo,
+            "estado": "no encontrado",
+            "cantidad": 0,
+            "tareas": []
+        }
+
+    return {
+        "id_trabajo": id_trabajo,
+        "nombre_archivo": tareas[0].get("nombre_archivo"),
+        "estado": calcular_estado_trabajo(tareas),
+        "cantidad": len(tareas),
+        "tareas": tareas
+    }
+
+
+@aplicacion.get("/trabajos/{id_trabajo}/eventos")
+async def eventos_trabajo(id_trabajo: str, request: Request):
+    # SSE mantiene una respuesta abierta; Redis Pub/Sub entrega los cambios que publica el worker.
+    canal = canal_eventos_trabajo(id_trabajo)
+
+    async def generar_eventos():
+        pubsub = redis_cliente.pubsub()
+        pubsub.subscribe(canal)
+
+        try:
+            yield formatear_evento_sse("conexion", {
+                "tipo": "conexion",
+                "id_trabajo": id_trabajo,
+                "canal": canal,
+            })
+
+            while True:
+                if await request.is_disconnected():
+                    break
+
+                mensaje = await asyncio.to_thread(
+                    pubsub.get_message,
+                    ignore_subscribe_messages=True,
+                    timeout=1.0
+                )
+
+                if mensaje and mensaje.get("type") == "message":
+                    yield (
+                        "event: tarea_actualizada\n"
+                        f"data: {mensaje.get('data')}\n\n"
+                    )
+                    continue
+
+                # Keep-alive para que proxies/navegadores no cierren una conexion quieta.
+                yield ": esperando eventos\n\n"
+                await asyncio.sleep(0.1)
+        finally:
+            pubsub.unsubscribe(canal)
+            pubsub.close()
+
+    return StreamingResponse(
+        generar_eventos(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 @aplicacion.delete("/trabajos")
