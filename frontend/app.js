@@ -859,7 +859,15 @@ const AudioLab = (() => {
         ? `Tarea: ${abreviarId(tarea.id_tarea)}`
         : "";
 
-    filaTitulo.append(texto, crearInsigniaEstado(tarea.estado));
+    const grupoInsignias = document.createElement("span");
+    grupoInsignias.className = "grupo-insignias-tarea";
+    grupoInsignias.append(crearInsigniaEstado(tarea.estado));
+
+    if (tarea.worker) {
+      grupoInsignias.append(crearInsigniaWorker(tarea.worker));
+    }
+
+    filaTitulo.append(texto, grupoInsignias);
     contenido.append(filaTitulo);
     if (descripcion.textContent) {
       contenido.append(descripcion);
@@ -920,7 +928,9 @@ const AudioLab = (() => {
       grupo.tareas.push(tarea);
     });
 
-    return Array.from(grupos.values());
+    return Array.from(grupos.values()).sort((a, b) => {
+      return obtenerFechaTrabajo(b.tareas) - obtenerFechaTrabajo(a.tareas);
+    });
   }
 
   function normalizarTareaCola(tarea) {
@@ -988,6 +998,14 @@ const AudioLab = (() => {
     return insignia;
   }
 
+  function crearInsigniaWorker(worker) {
+    const insignia = document.createElement("span");
+    insignia.className = `insignia-worker ${claseWorkerLog(worker)}`;
+    insignia.textContent = worker;
+
+    return insignia;
+  }
+
   function claseEstado(estadoTarea) {
     // Acepta estados en español e ingles para no romper si cambia backend/worker.
     const normalizado = String(estadoTarea || "").trim().toLowerCase();
@@ -1042,6 +1060,12 @@ const AudioLab = (() => {
   function renderizarLogs() {
     if (!elementos.listaLogs) return;
 
+    const estabaCercaDelFinal = (
+      elementos.listaLogs.scrollHeight
+      - elementos.listaLogs.scrollTop
+      - elementos.listaLogs.clientHeight
+    ) < 32;
+
     const logs = [
       ...estado.logsLocales.map((log) => ({ ...log, local: true })),
       ...estado.logsSistema
@@ -1066,7 +1090,9 @@ const AudioLab = (() => {
       elementos.listaLogs.append(entrada);
     });
 
-    elementos.listaLogs.scrollTop = elementos.listaLogs.scrollHeight;
+    if (estabaCercaDelFinal) {
+      elementos.listaLogs.scrollTop = elementos.listaLogs.scrollHeight;
+    }
   }
 
   function crearEtiquetaLog(log) {

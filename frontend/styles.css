@@ -1050,6 +1050,13 @@ audio {
   margin-bottom: 0.55rem;
 }
 
+.grupo-insignias-tarea {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
 .fila-titulo-tarea strong {
   font-size: 1rem;
 }
@@ -1093,6 +1100,51 @@ audio {
   font-size: 0.64rem;
   font-weight: 900;
   text-align: center;
+}
+
+.insignia-worker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.8rem;
+  border: 1px solid var(--borde);
+  color: var(--opuesto);
+  padding: 0.2rem 0.45rem;
+  font-size: 0.64rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+.insignia-worker.worker-0 {
+  background: #7cc9da;
+}
+
+.insignia-worker.worker-1 {
+  background: #b28cff;
+}
+
+.insignia-worker.worker-2 {
+  background: #64bf8b;
+}
+
+.insignia-worker.worker-3 {
+  background: #e3bc65;
+}
+
+.insignia-worker.worker-4 {
+  background: #f086c6;
+}
+
+.insignia-worker.worker-5 {
+  background: #ff9f6e;
+}
+
+.insignia-worker.worker-6 {
+  background: #d4df70;
+}
+
+.insignia-worker.worker-7 {
+  background: #8fc7ff;
 }
 
 .insignia-estado.pendiente {
