@@ -983,7 +983,7 @@ audio {
   font-size: 1rem;
 }
 
-.nombre-procesador,
+.nombre-worker,
 .mensaje-tarea {
   margin: 0;
   color: var(--atenuado);
@@ -1034,6 +1034,7 @@ audio {
 }
 
 .relleno-progreso {
+  display: block;
   width: var(--progreso, 0%);
   height: 100%;
   background: linear-gradient(90deg, var(--acento-1), var(--acento-2));

@@ -27,7 +27,7 @@
           <div class="estado-sistema">
             <span class="pastilla-estado esta-en-linea"><span></span> API conectada</span>
             <span class="pastilla-estado esta-en-linea"><span></span> Redis conectado</span>
-            <span class="pastilla-estado esta-ocupado"><span></span> 3 procesadores activos</span>
+            <span class="pastilla-estado esta-ocupado"><span></span> 3 workers activos</span>
           </div>
         </aside>
       </header>
@@ -172,7 +172,7 @@
           </aside>
         </section>
 
-        <section class="grilla-trabajos" aria-label="Cola de Redis">
+        <section class="grilla-trabajos" aria-label="Trabajo actual">
           <article class="panel panel-trabajo-actual" aria-labelledby="tituloTrabajoActual">
             <div class="encabezado-panel encabezado-compacto">
               <div>
@@ -182,7 +182,7 @@
               <span id="resumenTrabajo" class="resumen-trabajo">Esperando tareas</span>
             </div>
             <div id="tableroTareas" class="tablero-tareas estado-vacio">
-              <p>El trabajo actual aparecerá aquí cuando haya tareas pendientes.</p>
+              <p>Las tareas aparecerán aquí cuando estén registradas en Redis.</p>
             </div>
           </article>
         </section>
@@ -198,8 +198,8 @@
 
             <div class="grilla-metricas">
               <div class="metrica">
-                <span>Procesadores activos</span>
-                <strong id="metricaProcesadores">3</strong>
+                <span>Workers activos</span>
+                <strong id="metricaWorkers">3</strong>
               </div>
               <div class="metrica">
                 <span>Pendientes</span>

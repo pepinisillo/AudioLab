@@ -38,14 +38,14 @@ const AudioLab = (() => {
   const estado = {
     archivo: null,
     urlAudio: null,
-    intervaloCola: null
+    intervaloTrabajos: null
   };
 
   function iniciar() {
     conectarEventos();
     actualizarEstadoBoton();
-    cargarColaRedis();
-    estado.intervaloCola = window.setInterval(cargarColaRedis, 5000);
+    cargarTrabajosRedis();
+    estado.intervaloTrabajos = window.setInterval(cargarTrabajosRedis, 1000);
     agregarLog("[sistema] interfaz lista");
   }
 
@@ -210,7 +210,7 @@ const AudioLab = (() => {
 
       console.log("Respuesta de FastAPI:", trabajo);
 
-      await cargarColaRedis();
+      await cargarTrabajosRedis();
 
       agregarLog(`[servidor] trabajo creado: ${trabajo.id_trabajo}`);
     } catch (error) {
@@ -243,37 +243,37 @@ const AudioLab = (() => {
     return await respuesta.json();
   }
 
-  async function cargarColaRedis() {
+  async function cargarTrabajosRedis() {
     try {
-      const respuesta = await fetch(`${URL_API}/debug/cola`);
+      const respuesta = await fetch(`${URL_API}/trabajos`);
 
       if (!respuesta.ok) {
-        throw new Error(`GET /debug/cola respondió ${respuesta.status}`);
+        throw new Error(`GET /trabajos respondió ${respuesta.status}`);
       }
 
       const datos = await respuesta.json();
       const tareas = Array.isArray(datos.tareas) ? datos.tareas : [];
 
-      mostrarColaRedis(tareas);
+      mostrarTrabajosRedis(tareas);
     } catch (error) {
       console.error(error);
-      agregarLog(`[error] no se pudo leer la cola de Redis: ${error.message}`);
-      mostrarColaRedis([]);
+      agregarLog(`[error] no se pudieron leer los trabajos de Redis: ${error.message}`);
+      mostrarTrabajosRedis([]);
     }
   }
 
-  function mostrarColaRedis(tareas) {
+  function mostrarTrabajosRedis(tareas) {
     elementos.tableroTareas.replaceChildren();
 
     if (elementos.resumenTrabajo) {
-      elementos.resumenTrabajo.textContent = `${tareas.length} tareas en cola`;
+      elementos.resumenTrabajo.textContent = `${tareas.length} tareas registradas`;
     }
 
     if (tareas.length === 0) {
       elementos.tableroTareas.classList.add("estado-vacio");
 
       const mensaje = document.createElement("p");
-      mensaje.textContent = "No hay tareas en la cola de Redis.";
+      mensaje.textContent = "No hay tareas registradas en Redis.";
 
       elementos.tableroTareas.append(mensaje);
       return;
@@ -293,17 +293,17 @@ const AudioLab = (() => {
       const contenedorTitulo = document.createElement("div");
 
       const titulo = document.createElement("strong");
-      titulo.textContent = `Trabajo: ${abreviarId(grupo.id_trabajo)}`;
+      titulo.textContent = `Trabajo: ${grupo.nombre_archivo || abreviarId(grupo.id_trabajo)}`;
 
       const detalle = document.createElement("p");
-      detalle.className = "nombre-procesador";
-      detalle.textContent = `${grupo.tareas.length} tareas en cola`;
+      detalle.className = "nombre-worker";
+      detalle.textContent = `${grupo.tareas.length} tareas registradas`;
 
       contenedorTitulo.append(titulo, detalle);
 
       const insignia = document.createElement("span");
       insignia.className = "resumen-trabajo";
-      insignia.textContent = "cola redis";
+      insignia.textContent = estadoGrupoTrabajo(grupo.tareas);
 
       encabezado.append(contenedorTitulo, insignia);
 
@@ -345,6 +345,17 @@ const AudioLab = (() => {
       contenido.append(descripcion);
     }
 
+    const progreso = document.createElement("div");
+    progreso.className = "contenedor-progreso";
+    progreso.setAttribute("aria-label", `Progreso de ${tarea.nombre}`);
+
+    const relleno = document.createElement("span");
+    relleno.className = "relleno-progreso";
+    relleno.style.setProperty("--progreso", `${normalizarProgreso(tarea)}%`);
+
+    progreso.append(relleno);
+    contenido.append(progreso);
+
     const acciones = document.createElement("div");
     acciones.className = "acciones-tarea";
     rellenarAccionesTarea(acciones, tarea);
@@ -371,31 +382,71 @@ const AudioLab = (() => {
       const idTrabajo = String(tarea.id_trabajo || "sin-trabajo");
 
       if (!grupos.has(idTrabajo)) {
-        grupos.set(idTrabajo, []);
+        grupos.set(idTrabajo, {
+          id_trabajo: idTrabajo,
+          nombre_archivo: tarea.nombre_archivo || "",
+          tareas: []
+        });
       }
 
-      grupos.get(idTrabajo).push(tarea);
+      const grupo = grupos.get(idTrabajo);
+
+      if (!grupo.nombre_archivo && tarea.nombre_archivo) {
+        grupo.nombre_archivo = tarea.nombre_archivo;
+      }
+
+      grupo.tareas.push(tarea);
     });
 
-    return Array.from(grupos.entries()).map(([id_trabajo, tareasGrupo]) => {
-      return {
-        id_trabajo,
-        tareas: tareasGrupo
-      };
-    });
+    return Array.from(grupos.values());
   }
 
   function normalizarTareaCola(tarea) {
     return {
       id_tarea: tarea.id_tarea,
       id_trabajo: tarea.id_trabajo,
+      nombre_archivo: tarea.nombre_archivo || "",
       proceso: tarea.proceso,
       nombre: tarea.nombre || tarea.proceso || "tarea",
       estado: tarea.estado || "pendiente",
+      progreso: tarea.progreso,
+      worker: tarea.worker || null,
       resultado: tarea.resultado || null,
       error: tarea.error || null,
       urlResultado: tarea.urlResultado || tarea.resultado || ""
     };
+  }
+
+  function estadoGrupoTrabajo(tareas) {
+    if (tareas.some((tarea) => claseEstado(tarea.estado) === "error")) {
+      return "con errores";
+    }
+
+    if (tareas.every((tarea) => claseEstado(tarea.estado) === "completada")) {
+      return "completado";
+    }
+
+    if (tareas.some((tarea) => claseEstado(tarea.estado) === "en-proceso")) {
+      return "en proceso";
+    }
+
+    return "pendiente";
+  }
+
+  function normalizarProgreso(tarea) {
+    const progreso = Number(tarea.progreso);
+
+    if (Number.isFinite(progreso)) {
+      return Math.max(0, Math.min(100, progreso));
+    }
+
+    const estadoNormalizado = claseEstado(tarea.estado);
+
+    if (estadoNormalizado === "completada") return 100;
+    if (estadoNormalizado === "en-proceso") return 50;
+    if (estadoNormalizado === "error") return 100;
+
+    return 0;
   }
 
   function abreviarId(id) {

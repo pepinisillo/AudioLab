@@ -4,6 +4,7 @@ from uuid import uuid4
 import json
 import redis
 import os
+import time
 
 aplicacion = FastAPI(title="AudioLab API")
 app = aplicacion
@@ -26,6 +27,8 @@ redis_cliente = redis.Redis(
 )
 
 COLA_TAREAS = "cola:tareas"
+INDICE_TAREAS = "tareas:ids"
+INDICE_TAREAS_SET = "tareas:ids:set"
 
 NOMBRES_PROCESOS = {
     "transcripcion": "Transcripción",
@@ -35,6 +38,65 @@ NOMBRES_PROCESOS = {
     "tono_agudo": "Tono agudo",
     "onda": "Generar onda",
 }
+
+
+def guardar_tarea(tarea):
+    tarea["actualizado_en"] = time.time()
+    redis_cliente.set(
+        f"tarea:{tarea['id_tarea']}",
+        json.dumps(tarea, ensure_ascii=False)
+    )
+
+
+def registrar_tarea(tarea):
+    if redis_cliente.sadd(INDICE_TAREAS_SET, tarea["id_tarea"]):
+        redis_cliente.rpush(INDICE_TAREAS, tarea["id_tarea"])
+
+    guardar_tarea(tarea)
+
+
+def cargar_tareas_guardadas():
+    ids_tareas = redis_cliente.lrange(INDICE_TAREAS, 0, -1)
+    tareas = []
+    ids_vistos = set()
+
+    if ids_tareas:
+        claves = [f"tarea:{id_tarea}" for id_tarea in ids_tareas]
+
+        for tarea_json in redis_cliente.mget(claves):
+            if not tarea_json:
+                continue
+
+            tarea = json.loads(tarea_json)
+            ids_vistos.add(tarea["id_tarea"])
+            tareas.append(tarea)
+
+    for clave in redis_cliente.scan_iter("tarea:*"):
+        tarea_json = redis_cliente.get(clave)
+
+        if not tarea_json:
+            continue
+
+        tarea = json.loads(tarea_json)
+        id_tarea = tarea.get("id_tarea")
+
+        if id_tarea in ids_vistos:
+            continue
+
+        ids_vistos.add(id_tarea)
+        tareas.append(tarea)
+
+    for tarea_json in redis_cliente.lrange(COLA_TAREAS, 0, -1):
+        tarea = json.loads(tarea_json)
+        id_tarea = tarea.get("id_tarea")
+
+        if id_tarea in ids_vistos:
+            continue
+
+        ids_vistos.add(id_tarea)
+        tareas.append(tarea)
+
+    return tareas
 
 
 @aplicacion.get("/")
@@ -59,15 +121,20 @@ async def crear_trabajo(
         tarea = {
             "id_tarea": str(uuid4()),
             "id_trabajo": id_trabajo,
+            "nombre_archivo": audio.filename,
             "proceso": proceso,
             "nombre": NOMBRES_PROCESOS.get(proceso, proceso),
             "estado": "pendiente",
-            "procesador": None,
+            "progreso": 0,
+            "worker": None,
             "resultado": None,
             "error": None,
+            "creado_en": time.time(),
+            "actualizado_en": None,
         }
 
         tareas.append(tarea)
+        registrar_tarea(tarea)
         redis_cliente.rpush(COLA_TAREAS, json.dumps(tarea, ensure_ascii=False))
 
     return {
@@ -76,6 +143,17 @@ async def crear_trabajo(
         "estado": "pendiente",
         "tareas": tareas,
     }
+
+
+@aplicacion.get("/trabajos")
+async def listar_trabajos():
+    tareas = cargar_tareas_guardadas()
+
+    return {
+        "cantidad": len(tareas),
+        "tareas": tareas
+    }
+
 
 @app.get("/debug/cola")
 async def ver_cola():
