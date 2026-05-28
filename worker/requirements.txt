@@ -3,3 +3,6 @@ redis
 
 # Cliente de Python para descargar audio desde S3.
 boto3
+
+# Transcripcion real con Whisper optimizado para CPU.
+faster-whisper

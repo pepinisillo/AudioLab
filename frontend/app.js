@@ -1478,10 +1478,7 @@ const AudioLab = (() => {
   }
 
   function obtenerTextoResultado(tarea) {
-    if (tarea.proceso === "onda") return "ver onda";
-    if (tarea.proceso === "transcripcion") return "ver texto";
-
-    return "reproducir";
+    return "descargar";
   }
 
   function agregarLog(mensaje) {

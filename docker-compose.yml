@@ -32,5 +32,6 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - MODELO_WHISPER=tiny
     depends_on:
       - redis

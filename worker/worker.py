@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import boto3
 import redis
+from faster_whisper import WhisperModel
 
 
 # El worker usa la misma configuracion que el backend para hablar con Redis.
@@ -29,6 +30,7 @@ INDICE_TAREAS_SET = "tareas:ids:set"
 ID_WORKER = os.getenv("ID_WORKER", f"worker-{str(uuid4())[:8]}")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 S3_BUCKET = os.getenv("S3_BUCKET", "")
+MODELO_WHISPER = os.getenv("MODELO_WHISPER", "tiny")
 
 redis_cliente = redis.Redis(
     host=REDIS_HOST,
@@ -43,6 +45,7 @@ s3_cliente = boto3.client(
 )
 
 ultimo_estado_reportado = None
+modelo_whisper = None
 
 
 def guardar_estado_worker(estado, tarea_actual=""):
@@ -184,19 +187,59 @@ def ejecutar_ffmpeg(argumentos):
         raise RuntimeError(detalle[-1200:]) from error
 
 
+def obtener_modelo_whisper():
+    # Cargar el modelo solo cuando se usa evita gastar memoria en workers que procesan otras tareas.
+    global modelo_whisper
+
+    if modelo_whisper is None:
+        agregar_log(f"cargando modelo Whisper en CPU: {MODELO_WHISPER}")
+        modelo_whisper = WhisperModel(
+            MODELO_WHISPER,
+            device="cpu",
+            compute_type="int8"
+        )
+
+    return modelo_whisper
+
+
+def transcribir_audio(ruta_entrada):
+    modelo = obtener_modelo_whisper()
+
+    segmentos, _informacion = modelo.transcribe(
+        ruta_entrada,
+        language="es",
+        beam_size=1,
+        vad_filter=True
+    )
+
+    textos = []
+
+    for segmento in segmentos:
+        texto = segmento.text.strip()
+
+        if texto:
+            textos.append(texto)
+
+    texto_final = " ".join(textos).strip()
+
+    if not texto_final:
+        texto_final = "No se detecto voz en el audio."
+
+    return texto_final
+
+
 def generar_resultado(tarea, ruta_entrada):
     proceso = tarea["proceso"]
     id_tarea = tarea["id_tarea"]
 
     if proceso == "transcripcion":
         ruta_salida = f"/tmp/{id_tarea}.txt"
-        s3_key_resultado = f"resultados/{id_tarea}.txt"
+        s3_key_resultado = f"resultados/{id_tarea}-transcripcion.txt"
+        texto = transcribir_audio(ruta_entrada)
 
         with open(ruta_salida, "w", encoding="utf-8") as archivo:
-            archivo.write("Transcripcion simulada del audio.\n")
-            archivo.write(
-                f"Archivo original: {tarea.get('nombre_archivo', 'desconocido')}\n"
-            )
+            archivo.write(texto)
+            archivo.write("\n")
 
         return ruta_salida, s3_key_resultado, "text/plain"
 
