@@ -155,6 +155,25 @@ async def listar_trabajos():
     }
 
 
+@aplicacion.delete("/trabajos")
+async def limpiar_trabajos():
+    tareas = cargar_tareas_guardadas()
+    claves_tareas = [
+        f"tarea:{tarea['id_tarea']}"
+        for tarea in tareas
+        if tarea.get("id_tarea")
+    ]
+
+    if claves_tareas:
+        redis_cliente.delete(*claves_tareas)
+
+    redis_cliente.delete(INDICE_TAREAS, INDICE_TAREAS_SET, COLA_TAREAS)
+
+    return {
+        "eliminadas": len(claves_tareas)
+    }
+
+
 @app.get("/debug/cola")
 async def ver_cola():
     tareas_guardadas = redis_cliente.lrange(COLA_TAREAS, 0, -1)

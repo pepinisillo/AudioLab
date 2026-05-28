@@ -543,6 +543,13 @@ main {
   min-height: 5.25rem;
 }
 
+.acciones-encabezado {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
 .rotulo-seccion {
   margin: 0 0 0.25rem;
   color: var(--atenuado);
@@ -902,6 +909,15 @@ audio {
   color: var(--opuesto);
 }
 
+.boton-icono:disabled,
+.boton-icono:disabled:hover {
+  background: var(--superficie);
+  color: var(--atenuado);
+  cursor: not-allowed;
+  opacity: 0.72;
+  box-shadow: none;
+}
+
 .boton-icono svg {
   fill: none;
   stroke: currentColor;
@@ -1203,6 +1219,8 @@ audio {
   color: var(--atenuado);
   font-size: 0.66rem;
   font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 @media (prefers-reduced-motion: reduce) {

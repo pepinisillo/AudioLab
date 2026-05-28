@@ -179,7 +179,14 @@
                 <p class="rotulo-seccion">Paso 3</p>
                 <h2 id="tituloTrabajoActual">Trabajo actual</h2>
               </div>
-              <span id="resumenTrabajo" class="resumen-trabajo">Esperando tareas</span>
+              <div class="acciones-encabezado">
+                <span id="resumenTrabajo" class="resumen-trabajo">Esperando tareas</span>
+                <button id="botonLimpiarTrabajo" class="boton-icono" type="button" aria-label="Limpiar trabajo actual" title="Limpiar trabajo actual" disabled>
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13"/>
+                  </svg>
+                </button>
+              </div>
             </div>
             <div id="tableroTareas" class="tablero-tareas estado-vacio">
               <p>Las tareas aparecerán aquí cuando estén registradas en Redis.</p>
@@ -244,7 +251,11 @@
               <p class="rotulo-seccion">Archivo</p>
               <h2 id="tituloHistorial">Historial reciente</h2>
             </div>
-            <button id="botonLimpiarHistorial" class="boton-secundario boton-pequeno" type="button" disabled>Limpiar historial</button>
+            <button id="botonLimpiarHistorial" class="boton-icono" type="button" aria-label="Limpiar historial" title="Limpiar historial" disabled>
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13"/>
+              </svg>
+            </button>
           </div>
           <div id="listaHistorial" class="lista-historial estado-vacio">
             <p>Aún no hay trabajos guardados en el almacenamiento local.</p>

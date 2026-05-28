@@ -1,5 +1,8 @@
 const AudioLab = (() => {
   const URL_API = "http://localhost:8000";
+  const CLAVE_HISTORIAL = "audiolab:historial-trabajos";
+  const CLAVE_HISTORIAL_OCULTO = "audiolab:historial-trabajos-ocultos";
+  const MAXIMO_HISTORIAL = 40;
 
   const EXTENSIONES_ACEPTADAS = [".wav", ".mp3", ".ogg", ".m4a"];
 
@@ -27,8 +30,12 @@ const AudioLab = (() => {
     botonProcesar: document.querySelector("#botonProcesar"),
     ayudaEnvio: document.querySelector("#ayudaEnvio"),
     resumenTrabajo: document.querySelector("#resumenTrabajo"),
+    botonLimpiarTrabajo: document.querySelector("#botonLimpiarTrabajo"),
     tableroTareas: document.querySelector("#tableroTareas"),
-    listaLogs: document.querySelector("#listaRegistros")
+    listaLogs: document.querySelector("#listaRegistros"),
+    botonLimpiarRegistros: document.querySelector("#botonLimpiarRegistros"),
+    listaHistorial: document.querySelector("#listaHistorial"),
+    botonLimpiarHistorial: document.querySelector("#botonLimpiarHistorial")
   };
 
   const entradasProcesos = Array.from(
@@ -38,12 +45,14 @@ const AudioLab = (() => {
   const estado = {
     archivo: null,
     urlAudio: null,
+    tareasActuales: [],
     intervaloTrabajos: null
   };
 
   function iniciar() {
     conectarEventos();
     actualizarEstadoBoton();
+    renderizarHistorial();
     cargarTrabajosRedis();
     estado.intervaloTrabajos = window.setInterval(cargarTrabajosRedis, 1000);
     agregarLog("[sistema] interfaz lista");
@@ -101,6 +110,9 @@ const AudioLab = (() => {
     });
 
     elementos.botonProcesar.addEventListener("click", enviarTrabajo);
+    elementos.botonLimpiarTrabajo?.addEventListener("click", limpiarTrabajoActual);
+    elementos.botonLimpiarRegistros?.addEventListener("click", limpiarRegistros);
+    elementos.botonLimpiarHistorial?.addEventListener("click", limpiarHistorial);
   }
 
   function manejarArchivo(archivo) {
@@ -262,8 +274,39 @@ const AudioLab = (() => {
     }
   }
 
+  async function limpiarTrabajoActual() {
+    if (!puedeLimpiarTrabajo(estado.tareasActuales)) {
+      return;
+    }
+
+    if (elementos.botonLimpiarTrabajo) {
+      elementos.botonLimpiarTrabajo.disabled = true;
+    }
+    agregarLog("[interfaz] limpiando trabajo actual en Redis");
+
+    try {
+      const respuesta = await fetch(`${URL_API}/trabajos`, {
+        method: "DELETE"
+      });
+
+      if (!respuesta.ok) {
+        throw new Error(`DELETE /trabajos respondió ${respuesta.status}`);
+      }
+
+      const datos = await respuesta.json();
+      mostrarTrabajosRedis([]);
+      agregarLog(`[servidor] trabajo actual limpiado: ${datos.eliminadas || 0} tareas`);
+    } catch (error) {
+      console.error(error);
+      agregarLog(`[error] no se pudo limpiar el trabajo actual: ${error.message}`);
+      actualizarBotonLimpiarTrabajo(estado.tareasActuales);
+    }
+  }
+
   function mostrarTrabajosRedis(tareas) {
+    estado.tareasActuales = tareas;
     elementos.tableroTareas.replaceChildren();
+    actualizarBotonLimpiarTrabajo(tareas);
 
     if (elementos.resumenTrabajo) {
       elementos.resumenTrabajo.textContent = `${tareas.length} tareas registradas`;
@@ -282,6 +325,7 @@ const AudioLab = (() => {
     elementos.tableroTareas.classList.remove("estado-vacio");
 
     const trabajosAgrupados = agruparTareasPorTrabajo(tareas);
+    guardarTrabajosCompletadosEnHistorial(trabajosAgrupados);
 
     trabajosAgrupados.forEach((grupo) => {
       const tarjetaTrabajo = document.createElement("article");
@@ -318,6 +362,221 @@ const AudioLab = (() => {
       tarjetaTrabajo.append(encabezado, listaTareas);
       elementos.tableroTareas.append(tarjetaTrabajo);
     });
+  }
+
+  function actualizarBotonLimpiarTrabajo(tareas) {
+    if (!elementos.botonLimpiarTrabajo) return;
+
+    const hayTareas = Array.isArray(tareas) && tareas.length > 0;
+    const puedeLimpiar = puedeLimpiarTrabajo(tareas);
+    const titulo = !hayTareas
+      ? "No hay trabajos para limpiar"
+      : puedeLimpiar
+        ? "Limpiar trabajo actual"
+        : "Disponible cuando terminen las tareas";
+
+    elementos.botonLimpiarTrabajo.disabled = !puedeLimpiar;
+    elementos.botonLimpiarTrabajo.title = titulo;
+    elementos.botonLimpiarTrabajo.setAttribute("aria-label", titulo);
+  }
+
+  function puedeLimpiarTrabajo(tareas) {
+    return Array.isArray(tareas) && tareas.length > 0 && tareas.every(tareaEstaTerminada);
+  }
+
+  function trabajoEstaTerminado(tareas) {
+    return Array.isArray(tareas) && tareas.length > 0 && tareas.every(tareaEstaTerminada);
+  }
+
+  function tareaEstaTerminada(tarea) {
+    const estadoNormalizado = claseEstado(tarea?.estado);
+    return estadoNormalizado === "completada" || estadoNormalizado === "error";
+  }
+
+  function guardarTrabajosCompletadosEnHistorial(trabajosAgrupados) {
+    const idsOcultos = leerIdsHistorialOcultos();
+    const trabajosTerminados = trabajosAgrupados.filter((grupo) => {
+      return trabajoEstaTerminado(grupo.tareas) && !idsOcultos.has(grupo.id_trabajo);
+    });
+
+    if (trabajosTerminados.length === 0) {
+      return;
+    }
+
+    const historial = leerHistorial();
+    const historialPorId = new Map(
+      historial.map((item) => [item.id_trabajo, item])
+    );
+    let cambio = false;
+
+    trabajosTerminados.forEach((grupo) => {
+      const item = crearItemHistorial(grupo);
+      const itemAnterior = historialPorId.get(item.id_trabajo);
+
+      if (!itemAnterior || JSON.stringify(itemAnterior) !== JSON.stringify(item)) {
+        historialPorId.set(item.id_trabajo, item);
+        cambio = true;
+      }
+    });
+
+    if (!cambio) {
+      return;
+    }
+
+    const historialActualizado = Array.from(historialPorId.values())
+      .sort((a, b) => Number(b.actualizado_en || 0) - Number(a.actualizado_en || 0))
+      .slice(0, MAXIMO_HISTORIAL);
+
+    guardarHistorial(historialActualizado);
+    renderizarHistorial(historialActualizado);
+  }
+
+  function crearItemHistorial(grupo) {
+    const tareas = Array.isArray(grupo.tareas) ? grupo.tareas : [];
+    const completadas = tareas.filter((tarea) => claseEstado(tarea.estado) === "completada").length;
+    const errores = tareas.filter((tarea) => claseEstado(tarea.estado) === "error").length;
+
+    return {
+      id_trabajo: grupo.id_trabajo,
+      nombre_archivo: grupo.nombre_archivo || "audio desconocido",
+      total: tareas.length,
+      completadas,
+      errores,
+      estado: errores > 0 ? "con errores" : "completado",
+      actualizado_en: obtenerFechaTrabajo(tareas)
+    };
+  }
+
+  function obtenerFechaTrabajo(tareas) {
+    const marcasTiempo = tareas
+      .map((tarea) => Number(tarea.actualizado_en || tarea.creado_en))
+      .filter(Number.isFinite);
+
+    if (marcasTiempo.length === 0) {
+      return Date.now() / 1000;
+    }
+
+    return Math.max(...marcasTiempo);
+  }
+
+  function renderizarHistorial(historial = leerHistorial()) {
+    if (!elementos.listaHistorial) return;
+
+    elementos.listaHistorial.replaceChildren();
+    elementos.listaHistorial.classList.toggle("estado-vacio", historial.length === 0);
+    actualizarBotonLimpiarHistorial(historial.length > 0);
+
+    if (historial.length === 0) {
+      const mensaje = document.createElement("p");
+      mensaje.textContent = "Aún no hay trabajos guardados en el almacenamiento local.";
+      elementos.listaHistorial.append(mensaje);
+      return;
+    }
+
+    historial.forEach((trabajo) => {
+      const item = document.createElement("article");
+      item.className = "item-historial";
+
+      const contenido = document.createElement("div");
+
+      const titulo = document.createElement("strong");
+      titulo.textContent = trabajo.nombre_archivo || "audio desconocido";
+
+      const meta = document.createElement("div");
+      meta.className = "meta-historial";
+
+      [
+        `${trabajo.completadas || 0}/${trabajo.total || 0} completadas`,
+        trabajo.errores ? `${trabajo.errores} errores` : "sin errores",
+        trabajo.estado || "completado",
+        formatearFecha(trabajo.actualizado_en),
+        `trabajo ${abreviarId(trabajo.id_trabajo)}`
+      ].forEach((texto) => {
+        const etiqueta = document.createElement("span");
+        etiqueta.textContent = texto;
+        meta.append(etiqueta);
+      });
+
+      contenido.append(titulo, meta);
+      item.append(contenido);
+      elementos.listaHistorial.append(item);
+    });
+  }
+
+  function actualizarBotonLimpiarHistorial(tieneHistorial) {
+    if (!elementos.botonLimpiarHistorial) return;
+
+    const titulo = tieneHistorial
+      ? "Limpiar historial"
+      : "No hay historial para limpiar";
+
+    elementos.botonLimpiarHistorial.disabled = !tieneHistorial;
+    elementos.botonLimpiarHistorial.title = titulo;
+    elementos.botonLimpiarHistorial.setAttribute("aria-label", titulo);
+  }
+
+  function limpiarHistorial() {
+    const historial = leerHistorial();
+    const idsOcultos = leerIdsHistorialOcultos();
+
+    historial.forEach((trabajo) => {
+      if (trabajo.id_trabajo) {
+        idsOcultos.add(trabajo.id_trabajo);
+      }
+    });
+
+    agruparTareasPorTrabajo(estado.tareasActuales)
+      .filter((grupo) => trabajoEstaTerminado(grupo.tareas))
+      .forEach((grupo) => idsOcultos.add(grupo.id_trabajo));
+
+    guardarIdsHistorialOcultos(idsOcultos);
+    borrarHistorialGuardado();
+    renderizarHistorial([]);
+    agregarLog("[interfaz] historial limpiado");
+  }
+
+  function leerHistorial() {
+    try {
+      const datos = JSON.parse(window.localStorage.getItem(CLAVE_HISTORIAL) || "[]");
+      return Array.isArray(datos) ? datos : [];
+    } catch (error) {
+      console.warn("No se pudo leer el historial local:", error);
+      return [];
+    }
+  }
+
+  function guardarHistorial(historial) {
+    try {
+      window.localStorage.setItem(CLAVE_HISTORIAL, JSON.stringify(historial));
+    } catch (error) {
+      console.warn("No se pudo guardar el historial local:", error);
+    }
+  }
+
+  function borrarHistorialGuardado() {
+    try {
+      window.localStorage.removeItem(CLAVE_HISTORIAL);
+    } catch (error) {
+      console.warn("No se pudo borrar el historial local:", error);
+    }
+  }
+
+  function leerIdsHistorialOcultos() {
+    try {
+      const ids = JSON.parse(window.localStorage.getItem(CLAVE_HISTORIAL_OCULTO) || "[]");
+      return new Set(Array.isArray(ids) ? ids : []);
+    } catch (error) {
+      console.warn("No se pudieron leer los trabajos ocultos del historial:", error);
+      return new Set();
+    }
+  }
+
+  function guardarIdsHistorialOcultos(ids) {
+    try {
+      window.localStorage.setItem(CLAVE_HISTORIAL_OCULTO, JSON.stringify(Array.from(ids)));
+    } catch (error) {
+      console.warn("No se pudieron guardar los trabajos ocultos del historial:", error);
+    }
   }
 
   function crearTarjetaTarea(tarea) {
@@ -506,6 +765,13 @@ const AudioLab = (() => {
     elementos.listaLogs.prepend(entrada);
   }
 
+  function limpiarRegistros() {
+    if (!elementos.listaLogs) return;
+
+    elementos.listaLogs.replaceChildren();
+    agregarLog("[sistema] registros limpiados");
+  }
+
   function formatearBytes(bytes) {
     if (!Number.isFinite(bytes) || bytes === 0) {
       return "0 B";
@@ -532,6 +798,25 @@ const AudioLab = (() => {
     const segundosRestantes = Math.floor(segundos % 60);
 
     return `${String(minutos).padStart(2, "0")}:${String(segundosRestantes).padStart(2, "0")}`;
+  }
+
+  function formatearFecha(marcaTiempo) {
+    const valor = Number(marcaTiempo);
+
+    if (!Number.isFinite(valor)) {
+      return "fecha desconocida";
+    }
+
+    const fecha = new Date(valor > 10_000_000_000 ? valor : valor * 1000);
+
+    if (Number.isNaN(fecha.getTime())) {
+      return "fecha desconocida";
+    }
+
+    return new Intl.DateTimeFormat("es-MX", {
+      dateStyle: "short",
+      timeStyle: "short"
+    }).format(fecha);
   }
 
   return {
