@@ -1470,8 +1470,7 @@ const AudioLab = (() => {
     const enlace = document.createElement("a");
     enlace.className = "enlace-resultado";
     enlace.href = tarea.urlResultado || "#";
-    enlace.target = "_blank";
-    enlace.rel = "noopener";
+    enlace.download = "";
     enlace.textContent = obtenerTextoResultado(tarea);
 
     contenedor.append(enlace);

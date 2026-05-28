@@ -386,9 +386,22 @@ async def crear_trabajo_desde_s3(solicitud: SolicitudTrabajoS3):
     }
 
 
+def nombre_archivo_descarga(tarea, s3_key_resultado):
+    # El nombre viene del resultado en S3; se limpia para usarlo en Content-Disposition.
+    nombre = os.path.basename(str(s3_key_resultado)) or f"{tarea['id_tarea']}-resultado"
+
+    return (
+        nombre
+        .replace("\\", "-")
+        .replace('"', "'")
+        .replace("\r", "")
+        .replace("\n", "")
+    )
+
+
 @aplicacion.get("/tareas/{id_tarea}/resultado")
 async def abrir_resultado_tarea(id_tarea: str):
-    # Crea una URL temporal al momento de abrir el resultado, sin hacer publico el bucket.
+    # Crea una URL temporal que fuerza descarga, sin hacer publico el bucket.
     tarea_json = redis_cliente.get(f"tarea:{id_tarea}")
 
     if not tarea_json:
@@ -409,12 +422,19 @@ async def abrir_resultado_tarea(id_tarea: str):
         )
 
     try:
+        nombre_descarga = nombre_archivo_descarga(tarea, s3_key_resultado)
+        parametros_s3 = {
+            "Bucket": s3_bucket,
+            "Key": s3_key_resultado,
+            "ResponseContentDisposition": f'attachment; filename="{nombre_descarga}"',
+        }
+
+        if tarea.get("tipo_resultado"):
+            parametros_s3["ResponseContentType"] = tarea["tipo_resultado"]
+
         url_temporal = s3_cliente.generate_presigned_url(
             "get_object",
-            Params={
-                "Bucket": s3_bucket,
-                "Key": s3_key_resultado,
-            },
+            Params=parametros_s3,
             ExpiresIn=300
         )
     except (BotoCoreError, ClientError, NoCredentialsError) as error:
