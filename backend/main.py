@@ -1,13 +1,16 @@
-from fastapi import FastAPI, UploadFile, File, Form, Request
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from uuid import uuid4
 import asyncio
+import boto3
 import json
 import redis
 import os
 import time
 from datetime import datetime, timezone
+from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
 
 # API principal: recibe el audio, crea tareas y las deja en Redis para que las tomen los workers.
 aplicacion = FastAPI(title="AudioLab API")
@@ -35,6 +38,12 @@ redis_cliente = redis.Redis(
     decode_responses=True
 )
 
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+S3_BUCKET = os.getenv("S3_BUCKET", "")
+
+# Cliente S3 para generar permisos temporales de subida directa desde el navegador.
+s3_cliente = boto3.client("s3", region_name=AWS_REGION)
+
 # Lista que funciona como cola real: el worker hace BLPOP y la tarea sale de aqui.
 COLA_TAREAS = "cola:tareas"
 
@@ -57,6 +66,17 @@ NOMBRES_PROCESOS = {
     "tono_agudo": "Tono agudo",
     "onda": "Generar onda",
 }
+
+
+class SolicitudSignedPost(BaseModel):
+    nombre_archivo: str
+    tipo_archivo: str
+
+
+class SolicitudTrabajoS3(BaseModel):
+    nombre_archivo: str
+    s3_key: str
+    procesos: list[str]
 
 
 def canal_eventos_trabajo(id_trabajo):
@@ -233,6 +253,45 @@ async def inicio():
     }
 
 
+@aplicacion.post("/s3/signed-post")
+async def crear_signed_post(solicitud: SolicitudSignedPost):
+    # Permiso temporal para que el navegador suba el audio directo a S3.
+    if not S3_BUCKET:
+        raise HTTPException(
+            status_code=500,
+            detail="S3_BUCKET no esta configurado en el backend"
+        )
+
+    id_archivo = str(uuid4())
+    nombre_seguro = os.path.basename(solicitud.nombre_archivo)
+    s3_key = f"audio/{id_archivo}-{nombre_seguro}"
+
+    try:
+        signed_post = s3_cliente.generate_presigned_post(
+            Bucket=S3_BUCKET,
+            Key=s3_key,
+            Fields={
+                "Content-Type": solicitud.tipo_archivo
+            },
+            Conditions=[
+                {"Content-Type": solicitud.tipo_archivo},
+                ["content-length-range", 1, 50 * 1024 * 1024]
+            ],
+            ExpiresIn=600
+        )
+    except (BotoCoreError, ClientError, NoCredentialsError) as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"No se pudo crear el signed POST de S3: {error}"
+        ) from error
+
+    return {
+        "s3_key": s3_key,
+        "url": signed_post["url"],
+        "fields": signed_post["fields"]
+    }
+
+
 @aplicacion.post("/trabajos")
 async def crear_trabajo(
     audio: UploadFile = File(...),
@@ -273,6 +332,55 @@ async def crear_trabajo(
     return {
         "id_trabajo": id_trabajo,
         "nombre_archivo": audio.filename,
+        "estado": "pendiente",
+        "tareas": tareas,
+    }
+
+
+@aplicacion.post("/trabajos/s3")
+async def crear_trabajo_desde_s3(solicitud: SolicitudTrabajoS3):
+    # Crea tareas usando un audio que ya fue subido a S3 por el navegador.
+    if not S3_BUCKET:
+        raise HTTPException(
+            status_code=500,
+            detail="S3_BUCKET no esta configurado en el backend"
+        )
+
+    if not solicitud.procesos:
+        raise HTTPException(
+            status_code=400,
+            detail="Selecciona al menos un proceso"
+        )
+
+    id_trabajo = str(uuid4())
+    tareas = []
+
+    for proceso in solicitud.procesos:
+        tarea = {
+            "id_tarea": str(uuid4()),
+            "id_trabajo": id_trabajo,
+            "nombre_archivo": solicitud.nombre_archivo,
+            "proceso": proceso,
+            "nombre": NOMBRES_PROCESOS.get(proceso, proceso),
+            "estado": "pendiente",
+            "progreso": 0,
+            "worker": None,
+            "resultado": None,
+            "error": None,
+            "s3_bucket": S3_BUCKET,
+            "s3_key": solicitud.s3_key,
+            "creado_en": time.time(),
+            "actualizado_en": None,
+        }
+
+        tareas.append(tarea)
+        registrar_tarea(tarea)
+        redis_cliente.rpush(COLA_TAREAS, json.dumps(tarea, ensure_ascii=False))
+
+    return {
+        "id_trabajo": id_trabajo,
+        "nombre_archivo": solicitud.nombre_archivo,
+        "s3_key": solicitud.s3_key,
         "estado": "pendiente",
         "tareas": tareas,
     }

@@ -287,7 +287,7 @@ const AudioLab = (() => {
     } catch (error) {
       console.error(error);
       agregarLog(`[error] ${error.message}`);
-      window.alert("No se pudo crear el trabajo. Revisa que FastAPI esté encendido.");
+      window.alert("No se pudo crear el trabajo. Revisa FastAPI, S3 y las credenciales AWS.");
     } finally {
       elementos.botonProcesar.textContent = "procesar audio";
       actualizarEstadoBoton();
@@ -295,24 +295,76 @@ const AudioLab = (() => {
   }
 
   async function crearTrabajoEnBackend(archivo, procesos) {
-    // FormData permite mandar el archivo y la lista de procesos en la misma peticion.
-    const formulario = new FormData();
+    // Flujo S3: el archivo no pasa por FastAPI; el navegador lo sube directo al bucket.
+    const s3Key = await subirAudioAS3(archivo);
+    const valoresProcesos = procesos.map((proceso) => proceso.valor || proceso.value);
 
-    formulario.append("audio", archivo);
-
-    const valoresProcesos = procesos.map((proceso) => proceso.valor);
-    formulario.append("procesos", valoresProcesos.join(","));
-
-    const respuesta = await fetch(`${URL_API}/trabajos`, {
+    const respuesta = await fetch(`${URL_API}/trabajos/s3`, {
       method: "POST",
-      body: formulario
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        nombre_archivo: archivo.name,
+        s3_key: s3Key,
+        procesos: valoresProcesos
+      })
     });
 
     if (!respuesta.ok) {
-      throw new Error(`POST /trabajos respondió ${respuesta.status}`);
+      throw new Error(`POST /trabajos/s3 respondió ${respuesta.status}`);
     }
 
     return await respuesta.json();
+  }
+
+  async function subirAudioAS3(archivo) {
+    const tipoArchivo = obtenerTipoArchivoSubida(archivo);
+
+    agregarLog("[interfaz] pidiendo permiso temporal de subida a S3");
+
+    const respuestaFirma = await fetch(`${URL_API}/s3/signed-post`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        nombre_archivo: archivo.name,
+        tipo_archivo: tipoArchivo
+      })
+    });
+
+    if (!respuestaFirma.ok) {
+      throw new Error(`POST /s3/signed-post respondió ${respuestaFirma.status}`);
+    }
+
+    const firma = await respuestaFirma.json();
+    const formularioS3 = new FormData();
+
+    Object.entries(firma.fields || {}).forEach(([clave, valor]) => {
+      formularioS3.append(clave, valor);
+    });
+
+    formularioS3.set("Content-Type", tipoArchivo);
+    formularioS3.append("file", archivo);
+
+    agregarLog("[interfaz] subiendo audio a S3");
+
+    const respuestaS3 = await fetch(firma.url, {
+      method: "POST",
+      body: formularioS3
+    });
+
+    if (!respuestaS3.ok) {
+      throw new Error(`S3 respondió ${respuestaS3.status}`);
+    }
+
+    return firma.s3_key;
+  }
+
+  function obtenerTipoArchivoSubida(archivo) {
+    const tipoInferido = archivo.type || inferirTipoPorNombre(archivo.name);
+    return tipoInferido === "audio/desconocido" ? "audio/wav" : tipoInferido;
   }
 
   async function cargarTrabajosRedis() {
@@ -951,6 +1003,8 @@ const AudioLab = (() => {
       worker: tarea.worker || null,
       resultado: tarea.resultado || null,
       error: tarea.error || null,
+      s3_bucket: tarea.s3_bucket || "",
+      s3_key: tarea.s3_key || "",
       urlResultado: tarea.urlResultado || tarea.resultado || ""
     };
   }

@@ -9,3 +9,6 @@ python-multipart
 
 # Cliente de Python para leer/escribir tareas en Redis.
 redis
+
+# Cliente de Python para interactuar con AWS S3.
+boto3
