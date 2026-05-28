@@ -172,30 +172,17 @@
           </aside>
         </section>
 
-        <section class="grilla-trabajos" aria-label="Trabajo actual y resultados">
+        <section class="grilla-trabajos" aria-label="Cola de Redis">
           <article class="panel panel-trabajo-actual" aria-labelledby="tituloTrabajoActual">
             <div class="encabezado-panel encabezado-compacto">
               <div>
                 <p class="rotulo-seccion">Paso 3</p>
                 <h2 id="tituloTrabajoActual">Trabajo actual</h2>
               </div>
-              <span id="resumenTrabajo" class="resumen-trabajo">Esperando audio</span>
+              <span id="resumenTrabajo" class="resumen-trabajo">Esperando tareas</span>
             </div>
             <div id="tableroTareas" class="tablero-tareas estado-vacio">
-              <p>Las tareas aparecerán aquí cuando envíes el audio al servidor.</p>
-            </div>
-          </article>
-
-          <article class="panel panel-resultados" aria-labelledby="tituloResultados">
-            <div class="encabezado-panel encabezado-compacto">
-              <div>
-                <p class="rotulo-seccion">Artefactos</p>
-                <h2 id="tituloResultados">Resultados</h2>
-              </div>
-              <span id="contadorResultados" class="resumen-trabajo">0 listos</span>
-            </div>
-            <div id="listaResultados" class="lista-resultados estado-vacio">
-              <p>Los resultados apareceran aqui.</p>
+              <p>El trabajo actual aparecerá aquí cuando haya tareas pendientes.</p>
             </div>
           </article>
         </section>
@@ -257,7 +244,7 @@
               <p class="rotulo-seccion">Archivo</p>
               <h2 id="tituloHistorial">Historial reciente</h2>
             </div>
-            <button id="botonLimpiarHistorial" class="boton-secundario boton-pequeno" type="button">Limpiar historial</button>
+            <button id="botonLimpiarHistorial" class="boton-secundario boton-pequeno" type="button" disabled>Limpiar historial</button>
           </div>
           <div id="listaHistorial" class="lista-historial estado-vacio">
             <p>Aún no hay trabajos guardados en el almacenamiento local.</p>

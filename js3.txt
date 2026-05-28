@@ -26,7 +26,6 @@ const AudioLab = (() => {
     vistaPrevia: document.querySelector(".pila-vista-previa"),
     botonProcesar: document.querySelector("#botonProcesar"),
     ayudaEnvio: document.querySelector("#ayudaEnvio"),
-    resumenTrabajo: document.querySelector("#resumenTrabajo"),
     tableroTareas: document.querySelector("#tableroTareas"),
     listaLogs: document.querySelector("#listaRegistros")
   };
@@ -37,15 +36,12 @@ const AudioLab = (() => {
 
   const estado = {
     archivo: null,
-    urlAudio: null,
-    intervaloCola: null
+    urlAudio: null
   };
 
   function iniciar() {
     conectarEventos();
     actualizarEstadoBoton();
-    cargarColaRedis();
-    estado.intervaloCola = window.setInterval(cargarColaRedis, 5000);
     agregarLog("[sistema] interfaz lista");
   }
 
@@ -210,7 +206,7 @@ const AudioLab = (() => {
 
       console.log("Respuesta de FastAPI:", trabajo);
 
-      await cargarColaRedis();
+      mostrarTrabajo(trabajo);
 
       agregarLog(`[servidor] trabajo creado: ${trabajo.id_trabajo}`);
     } catch (error) {
@@ -243,81 +239,43 @@ const AudioLab = (() => {
     return await respuesta.json();
   }
 
-  async function cargarColaRedis() {
-    try {
-      const respuesta = await fetch(`${URL_API}/debug/cola`);
-
-      if (!respuesta.ok) {
-        throw new Error(`GET /debug/cola respondió ${respuesta.status}`);
-      }
-
-      const datos = await respuesta.json();
-      const tareas = Array.isArray(datos.tareas) ? datos.tareas : [];
-
-      mostrarColaRedis(tareas);
-    } catch (error) {
-      console.error(error);
-      agregarLog(`[error] no se pudo leer la cola de Redis: ${error.message}`);
-      mostrarColaRedis([]);
-    }
-  }
-
-  function mostrarColaRedis(tareas) {
-    elementos.tableroTareas.replaceChildren();
-
-    if (elementos.resumenTrabajo) {
-      elementos.resumenTrabajo.textContent = `${tareas.length} tareas en cola`;
-    }
-
-    if (tareas.length === 0) {
-      elementos.tableroTareas.classList.add("estado-vacio");
-
-      const mensaje = document.createElement("p");
-      mensaje.textContent = "No hay tareas en la cola de Redis.";
-
-      elementos.tableroTareas.append(mensaje);
-      return;
-    }
+  function mostrarTrabajo(trabajo) {
+    const trabajoVista = normalizarTrabajoParaVista(trabajo);
 
     elementos.tableroTareas.classList.remove("estado-vacio");
+    elementos.tableroTareas.replaceChildren();
 
-    const trabajosAgrupados = agruparTareasPorTrabajo(tareas);
+    const tarjetaTrabajo = document.createElement("article");
+    tarjetaTrabajo.className = "tarjeta-trabajo";
 
-    trabajosAgrupados.forEach((grupo) => {
-      const tarjetaTrabajo = document.createElement("article");
-      tarjetaTrabajo.className = "tarjeta-trabajo";
+    const encabezado = document.createElement("div");
+    encabezado.className = "encabezado-tarjeta-trabajo";
 
-      const encabezado = document.createElement("div");
-      encabezado.className = "encabezado-tarjeta-trabajo";
+    const contenedorTitulo = document.createElement("div");
 
-      const contenedorTitulo = document.createElement("div");
+    const titulo = document.createElement("strong");
+    titulo.textContent = `Trabajo: ${trabajoVista.nombre_archivo}`;
 
-      const titulo = document.createElement("strong");
-      titulo.textContent = `Trabajo: ${abreviarId(grupo.id_trabajo)}`;
+    const detalle = document.createElement("p");
+    detalle.className = "nombre-procesador";
+    detalle.textContent = `${trabajoVista.tareas.length} tareas creadas`;
 
-      const detalle = document.createElement("p");
-      detalle.className = "nombre-procesador";
-      detalle.textContent = `${grupo.tareas.length} tareas en cola`;
+    contenedorTitulo.append(titulo, detalle);
 
-      contenedorTitulo.append(titulo, detalle);
+    const insignia = crearInsigniaEstado(trabajoVista.estado);
 
-      const insignia = document.createElement("span");
-      insignia.className = "resumen-trabajo";
-      insignia.textContent = "cola redis";
+    encabezado.append(contenedorTitulo, insignia);
 
-      encabezado.append(contenedorTitulo, insignia);
+    const listaTareas = document.createElement("div");
+    listaTareas.className = "lista-tareas";
 
-      const listaTareas = document.createElement("div");
-      listaTareas.className = "lista-tareas";
-
-      grupo.tareas.forEach((tarea) => {
-        const tarjetaTarea = crearTarjetaTarea(normalizarTareaCola(tarea));
-        listaTareas.append(tarjetaTarea);
-      });
-
-      tarjetaTrabajo.append(encabezado, listaTareas);
-      elementos.tableroTareas.append(tarjetaTrabajo);
+    trabajoVista.tareas.forEach((tarea) => {
+      const tarjetaTarea = crearTarjetaTarea(tarea);
+      listaTareas.append(tarjetaTarea);
     });
+
+    tarjetaTrabajo.append(encabezado, listaTareas);
+    elementos.tableroTareas.append(tarjetaTrabajo);
   }
 
   function crearTarjetaTarea(tarea) {
@@ -331,75 +289,37 @@ const AudioLab = (() => {
     const texto = document.createElement("strong");
     texto.textContent = tarea.nombre;
 
-    const descripcion = document.createElement("p");
-    descripcion.className = "mensaje-tarea";
-    descripcion.textContent = tarea.proceso
-      ? `Proceso: ${tarea.proceso}${tarea.id_tarea ? ` · ${abreviarId(tarea.id_tarea)}` : ""}`
-      : tarea.id_tarea
-        ? `Tarea: ${abreviarId(tarea.id_tarea)}`
-        : "";
-
     filaTitulo.append(texto, crearInsigniaEstado(tarea.estado));
     contenido.append(filaTitulo);
-    if (descripcion.textContent) {
-      contenido.append(descripcion);
-    }
 
-    const acciones = document.createElement("div");
-    acciones.className = "acciones-tarea";
-    rellenarAccionesTarea(acciones, tarea);
-
-    tarjeta.append(contenido, acciones);
+    tarjeta.append(contenido);
 
     return tarjeta;
   }
 
   function normalizarTrabajoParaVista(trabajo) {
     const tareas = Array.isArray(trabajo.tareas) ? [...trabajo.tareas] : [];
+    const tieneWaveform = tareas.some((tarea) => {
+      return normalizarNombreTarea(tarea.nombre) === "waveform";
+    });
+
+    if (!tieneWaveform) {
+      tareas.push({
+        nombre: "Waveform",
+        estado: trabajo.estado || "pendiente"
+      });
+    }
 
     return {
       nombre_archivo: trabajo.nombre_archivo || "audio desconocido",
-      estado: trabajo.estado || "pendiente",
       tareas
     };
   }
 
-  function agruparTareasPorTrabajo(tareas) {
-    const grupos = new Map();
-
-    tareas.forEach((tarea) => {
-      const idTrabajo = String(tarea.id_trabajo || "sin-trabajo");
-
-      if (!grupos.has(idTrabajo)) {
-        grupos.set(idTrabajo, []);
-      }
-
-      grupos.get(idTrabajo).push(tarea);
-    });
-
-    return Array.from(grupos.entries()).map(([id_trabajo, tareasGrupo]) => {
-      return {
-        id_trabajo,
-        tareas: tareasGrupo
-      };
-    });
-  }
-
-  function normalizarTareaCola(tarea) {
-    return {
-      id_tarea: tarea.id_tarea,
-      id_trabajo: tarea.id_trabajo,
-      proceso: tarea.proceso,
-      nombre: tarea.nombre || tarea.proceso || "tarea",
-      estado: tarea.estado || "pendiente",
-      resultado: tarea.resultado || null,
-      error: tarea.error || null,
-      urlResultado: tarea.urlResultado || tarea.resultado || ""
-    };
-  }
-
-  function abreviarId(id) {
-    return String(id || "").slice(0, 8);
+  function normalizarNombreTarea(nombre) {
+    return String(nombre || "")
+      .trim()
+      .toLowerCase();
   }
 
   function crearInsigniaEstado(estadoTarea) {
@@ -429,21 +349,6 @@ const AudioLab = (() => {
     if (normalizado === "completed") return "completada";
 
     return normalizado || "pendiente";
-  }
-
-  function rellenarAccionesTarea(contenedor, tarea) {
-    contenedor.replaceChildren();
-
-    if (tarea.estado !== "completada") {
-      return;
-    }
-
-    const enlace = document.createElement("a");
-    enlace.className = "enlace-resultado";
-    enlace.href = tarea.urlResultado || "#";
-    enlace.textContent = tarea.proceso === "onda" ? "ver onda" : "reproducir";
-
-    contenedor.append(enlace);
   }
 
   function agregarLog(mensaje) {

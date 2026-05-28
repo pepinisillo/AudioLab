@@ -365,35 +365,42 @@ button {
   align-items: stretch;
   justify-content: space-between;
   min-height: 5.6rem;
-  margin: 1.45rem -60px 0;
-  width: calc(100% + 120px);
-  padding: 0 60px;
+  margin: 1.45rem -30px 0;
+  width: calc(100% + 60px);
+  padding: 0;
   border: 1px solid var(--borde);
   background: var(--fondo);
   box-shadow: 0 10px 0 rgba(16, 16, 16, 0.08);
 }
 
 .celda-tema {
+  position: relative;
   width: 5.6rem;
+  height: 5.6rem;
   flex: 0 0 5.6rem;
   border-right: 1px solid var(--borde);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 0;
+  display: grid;
+  place-items: center;
+  background: var(--fondo);
+  overflow: visible;
 }
 
 .interruptor-tema {
+  position: relative;
   display: grid;
   place-items: center;
-  width: fit-content;
-  height: fit-content;
-  margin: 0 auto;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   padding: 0;
+  overflow: visible;
+  line-height: 0;
 }
 
 .forma-interruptor {
   margin: 0;
+  width: 3.05rem;
+  height: 3.05rem;
 }
 
 .interruptor-tema input {
@@ -403,16 +410,25 @@ button {
 }
 
 .forma-interruptor {
-  width: 3.05rem;
-  height: 3.05rem;
   background: var(--texto);
   clip-path: polygon(100% 50%, 78.53% 59.27%, 90.45% 79.39%, 67.63% 74.27%, 65.45% 97.55%, 50% 80%, 34.55% 97.55%, 32.37% 74.27%, 9.55% 79.39%, 21.47% 59.27%, 0% 50%, 21.47% 40.73%, 9.55% 20.61%, 32.37% 25.73%, 34.55% 2.45%, 50% 20%, 65.45% 2.45%, 67.63% 25.73%, 90.45% 20.61%, 78.53% 40.73%);
-  transition: transform 180ms ease, background-color 180ms ease;
+  transition:
+    transform 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease,
+    filter 180ms ease;
 }
 
 .interruptor-tema input:checked + .forma-interruptor {
   background: var(--acento-2);
-  transform: rotate(36deg);
+  transform: rotate(36deg) scale(1.03);
+  box-shadow: 0 0 0 4px rgba(var(--rgb-acento-2) / 0.22);
+  filter: saturate(1.12);
+}
+
+.interruptor-tema input:active + .forma-interruptor {
+  background: var(--acento-2);
+  box-shadow: 0 0 0 6px rgba(var(--rgb-acento-2) / 0.28);
 }
 
 .enlaces-navegacion {
@@ -446,8 +462,6 @@ button {
   place-items: center;
   gap: 0.15rem;
   min-width: 12rem;
-  margin-right: -60px;
-  padding-right: 30px;
   background: linear-gradient(45deg, rgba(var(--rgb-acento-1) / 0.26), rgba(var(--rgb-acento-2) / 0.26));
   color: var(--texto);
   text-align: center;
@@ -487,7 +501,7 @@ main {
 }
 
 .grilla-trabajos {
-  grid-template-columns: minmax(0, 1fr) minmax(20rem, 0.38fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .grilla-monitoreo {
@@ -859,6 +873,14 @@ audio {
   color: var(--texto);
 }
 
+.boton-secundario:disabled {
+  background: var(--fondo);
+  color: var(--texto);
+  opacity: 0.72;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 .boton-pequeno {
   min-height: 2.4rem;
   font-size: 0.68rem;
@@ -913,9 +935,36 @@ audio {
 
 .tarjeta-trabajo {
   display: grid;
-  background: var(--borde);
-  gap: 1px;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: var(--fondo);
+  gap: 0;
   border: 1px solid var(--borde);
+}
+
+.tarjeta-trabajo::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    linear-gradient(145deg, rgba(var(--rgb-acento-1) / 0.22) 0 18%, transparent 44%),
+    linear-gradient(315deg, rgba(var(--rgb-acento-2) / 0.18) 0 16%, transparent 42%);
+}
+
+.tarjeta-trabajo::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(135deg, rgba(var(--rgb-acento-1) / 0.08), rgba(var(--rgb-acento-2) / 0.05));
+  opacity: 0.85;
+}
+
+.tarjeta-trabajo + .tarjeta-trabajo {
+  border-top: 0;
 }
 
 .encabezado-tarjeta-trabajo {
@@ -923,7 +972,9 @@ audio {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  background: var(--superficie);
+  background:
+    linear-gradient(145deg, rgba(var(--rgb-acento-1) / 0.18), rgba(var(--rgb-acento-2) / 0.12)),
+    var(--superficie);
   padding: 1rem;
 }
 
@@ -946,6 +997,8 @@ audio {
 .lista-tareas {
   display: grid;
   gap: 1px;
+  background: var(--borde);
+  padding: 1px 0 0;
 }
 
 .tarjeta-tarea {
@@ -1227,9 +1280,9 @@ audio {
   }
 
   .celda-tema {
-    width: 4.8rem;
-    flex-basis: 4.8rem;
-    min-height: 4.8rem;
+    width: 5.4rem;
+    height: 5.4rem;
+    flex-basis: 5.4rem;
   }
 
   .enlaces-navegacion {
