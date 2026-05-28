@@ -1,2 +1,5 @@
 # Cliente de Python para leer/escribir tareas en Redis.
 redis
+
+# Cliente de Python para descargar audio desde S3.
+boto3

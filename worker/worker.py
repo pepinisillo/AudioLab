@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timezone
 from uuid import uuid4
 
+import boto3
 import redis
 
 
@@ -31,6 +32,11 @@ redis_cliente = redis.Redis(
     port=REDIS_PORT,
     # Trabajar con strings simplifica json.loads/json.dumps.
     decode_responses=True
+)
+
+s3_cliente = boto3.client(
+    "s3",
+    region_name=os.getenv("AWS_REGION", "us-east-1")
 )
 
 ultimo_estado_reportado = None
@@ -127,6 +133,28 @@ def guardar_estado_tarea(tarea):
     publicar_evento_tarea(tarea)
 
 
+def ruta_temporal_audio(tarea):
+    # Descargamos a /tmp porque es un espacio temporal seguro dentro del contenedor.
+    nombre_base = os.path.basename(tarea.get("s3_key", "audio"))
+    return os.path.join("/tmp", f"{tarea['id_tarea']}-{nombre_base}")
+
+
+def descargar_audio_s3(tarea):
+    # Por ahora solo confirmamos que el worker puede bajar el archivo desde S3.
+    s3_bucket = tarea.get("s3_bucket")
+    s3_key = tarea.get("s3_key")
+
+    if not s3_bucket or not s3_key:
+        agregar_log("tarea sin archivo S3, usando flujo simulado local")
+        return None
+
+    ruta_audio = ruta_temporal_audio(tarea)
+    s3_cliente.download_file(s3_bucket, s3_key, ruta_audio)
+    agregar_log(f"descargado desde S3: {s3_key}")
+
+    return ruta_audio
+
+
 def procesar_tarea(tarea):
     # Marcarla antes del trabajo pesado evita que la UI la siga viendo como pendiente.
     tarea["estado"] = "en proceso"
@@ -134,6 +162,12 @@ def procesar_tarea(tarea):
     tarea["worker"] = ID_WORKER
     reportar_estado_worker("procesando", tarea["nombre"])
     guardar_estado_tarea(tarea)
+
+    ruta_audio = descargar_audio_s3(tarea)
+
+    if ruta_audio:
+        tarea["archivo_local"] = ruta_audio
+        guardar_estado_tarea(tarea)
 
     # Simulacion del avance real. Cuando haya procesamiento de audio, se actualiza aqui.
     for progreso in [30, 50, 70, 90]:
