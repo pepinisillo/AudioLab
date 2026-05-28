@@ -82,6 +82,7 @@ const AudioLab = (() => {
     tareasActuales: [],
     logsLocales: [],
     logsSistema: [],
+    workersSistema: [],
     coloresWorkers: new Map(),
     eventosTrabajos: new Map(),
     intervaloTrabajos: null,
@@ -372,6 +373,8 @@ const AudioLab = (() => {
       ? Number(datosWorkers.activos)
       : workers.filter((worker) => worker.activo).length;
 
+    estado.workersSistema = workers.filter((worker) => worker.activo);
+
     if (elementos.metricaWorkers) {
       elementos.metricaWorkers.textContent = String(activos);
     }
@@ -379,6 +382,8 @@ const AudioLab = (() => {
     if (elementos.estadoWorkersCabecera) {
       elementos.estadoWorkersCabecera.lastChild.textContent = ` ${activos} workers activos`;
     }
+
+    renderizarLogs();
   }
 
   function mostrarLogsSistema(logs) {
@@ -1066,6 +1071,13 @@ const AudioLab = (() => {
       - elementos.listaLogs.clientHeight
     ) < 32;
 
+    const estadosWorkers = estado.workersSistema.map((worker) => ({
+      worker: worker.id,
+      mensaje: formatearEstadoWorker(worker),
+      fecha: worker.ultima_vez,
+      tipo: "estado-worker"
+    }));
+
     const logs = [
       ...estado.logsLocales.map((log) => ({ ...log, local: true })),
       ...estado.logsSistema
@@ -1077,22 +1089,43 @@ const AudioLab = (() => {
 
     elementos.listaLogs.replaceChildren();
 
-    if (logs.length === 0) {
+    if (estadosWorkers.length === 0 && logs.length === 0) {
       const entrada = document.createElement("li");
       entrada.textContent = "[sistema] listo para recibir trabajos...";
       elementos.listaLogs.append(entrada);
       return;
     }
 
+    estadosWorkers.forEach((log) => {
+      elementos.listaLogs.append(crearItemLog(log));
+    });
+
     logs.forEach((log) => {
-      const entrada = document.createElement("li");
-      entrada.append(crearEtiquetaLog(log), document.createTextNode(formatearMensajeLog(log)));
-      elementos.listaLogs.append(entrada);
+      elementos.listaLogs.append(crearItemLog(log));
     });
 
     if (estabaCercaDelFinal) {
       elementos.listaLogs.scrollTop = elementos.listaLogs.scrollHeight;
     }
+  }
+
+  function crearItemLog(log) {
+    const entrada = document.createElement("li");
+
+    if (log.tipo) {
+      entrada.classList.add(log.tipo);
+    }
+
+    entrada.append(crearEtiquetaLog(log), document.createTextNode(formatearMensajeLog(log)));
+    return entrada;
+  }
+
+  function formatearEstadoWorker(worker) {
+    const estadoWorker = worker.estado || "desconocido";
+    const tareaActual = worker.tarea_actual ? ` · ${worker.tarea_actual}` : "";
+    const actividad = worker.activo ? "activo" : "sin señal reciente";
+
+    return `${estadoWorker}${tareaActual} · ${actividad}`;
   }
 
   function crearEtiquetaLog(log) {
@@ -1145,7 +1178,7 @@ const AudioLab = (() => {
       return;
     }
 
-    agregarLog("[sistema] registros limpiados");
+    await cargarEstadoSistema();
   }
 
   function formatearBytes(bytes) {

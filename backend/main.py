@@ -42,6 +42,7 @@ COLA_TAREAS = "cola:tareas"
 PREFIJO_WORKER = "worker:"
 LISTA_LOGS = "logs:sistema"
 SEGUNDOS_WORKER_ACTIVO = 15
+SEGUNDOS_WORKER_EXPIRA = 45
 
 # Indices para poder seguir mostrando tareas aunque ya hayan salido de la cola.
 INDICE_TAREAS = "tareas:ids"
@@ -95,6 +96,13 @@ def cargar_workers():
 
         if ultima_vez:
             segundos_desde_ultima_vez = (ahora - ultima_vez).total_seconds()
+
+        if (
+            segundos_desde_ultima_vez is None
+            or segundos_desde_ultima_vez > SEGUNDOS_WORKER_EXPIRA
+        ):
+            redis_cliente.delete(clave)
+            continue
 
         datos["activo"] = (
             segundos_desde_ultima_vez is not None

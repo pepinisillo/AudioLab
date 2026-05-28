@@ -17,6 +17,7 @@ COLA_TAREAS = "cola:tareas"
 # Estado de workers y logs compartidos para que FastAPI pueda mostrarlos despues.
 PREFIJO_WORKER = "worker:"
 LISTA_LOGS = "logs:sistema"
+SEGUNDOS_EXPIRA_WORKER = 45
 
 # Indices compartidos con la API para que la pantalla pueda ver progreso e historial.
 INDICE_TAREAS = "tareas:ids"
@@ -48,6 +49,7 @@ def guardar_estado_worker(estado, tarea_actual=""):
             "ultima_vez": datetime.now(timezone.utc).isoformat(),
         }
     )
+    redis_cliente.expire(clave, SEGUNDOS_EXPIRA_WORKER)
 
 
 def agregar_log(mensaje):
