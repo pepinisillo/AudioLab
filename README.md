@@ -627,7 +627,7 @@ El proyecto fue desplegado en una instancia remota de laboratorio usando Nix par
 | Instancia | VM Linux remota Ubuntu <img width="660" height="251" alt="Screenshot_20260528_180202" src="https://github.com/user-attachments/assets/a17e9c8a-18f0-462b-835f-2521ad2944aa" /> |
 | IP pública / estática | Disponible en la evidencia de video |
 | Nix / configuración del sistema | Se usó Nix para preparar el entorno reproducible de la instancia <img width="718" height="81" alt="Screenshot_20260528_175813" src="https://github.com/user-attachments/assets/ebd506cb-5a76-422e-8dca-9704abec8848" /> <img width="657" height="68" alt="image" src="https://github.com/user-attachments/assets/0f2ec95c-35d0-4970-bbd0-61bacf757b2a" /> |
-| Puertos abiertos | `8080` frontend, `8000` API |
+| Puertos abiertos | `8080` frontend, `8000` API <img width="782" height="222" alt="Screenshot_20260528_183815" src="https://github.com/user-attachments/assets/5da517f2-7319-4375-b61f-4416b513160d" /> |
 | Redis | Corre internamente en Docker |
 | URL frontend | http://IP_ESTATICA:8080 |
 | URL API | http://IP_ESTATICA:8000 |
