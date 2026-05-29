@@ -16,6 +16,7 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
 # Cola real de pendientes. BLPOP saca una tarea de aqui cuando un worker la toma.
 COLA_TAREAS = "cola:tareas"
+SEGUNDOS_ESPERA_COLA = 5
 
 # Estado de workers y logs compartidos para que FastAPI pueda mostrarlos despues.
 PREFIJO_WORKER = "worker:"
@@ -35,6 +36,9 @@ MODELO_WHISPER = os.getenv("MODELO_WHISPER", "tiny")
 redis_cliente = redis.Redis(
     host=REDIS_HOST,
     port=REDIS_PORT,
+    # BLPOP espera varios segundos; el socket necesita margen para que Redis pueda
+    # responder None en vez de disparar un TimeoutError justo al vencimiento.
+    socket_timeout=SEGUNDOS_ESPERA_COLA + 5,
     # Trabajar con strings simplifica json.loads/json.dumps.
     decode_responses=True
 )
@@ -366,7 +370,13 @@ def iniciar_worker():
 
     while True:
         # BLPOP bloquea hasta 5 segundos; si no hay nada, vuelve a intentar sin gastar CPU de mas.
-        resultado = redis_cliente.blpop(COLA_TAREAS, timeout=5)
+        try:
+            resultado = redis_cliente.blpop(COLA_TAREAS, timeout=SEGUNDOS_ESPERA_COLA)
+        except redis.exceptions.TimeoutError:
+            # En Redis/redis-py el timeout del socket puede coincidir con el timeout
+            # bloqueante de BLPOP. Para el worker, eso equivale a "sin tareas aun".
+            reportar_estado_worker("esperando")
+            continue
 
         if resultado is None:
             reportar_estado_worker("esperando")
