@@ -646,7 +646,7 @@ El proyecto fue desplegado en una instancia remota de laboratorio usando Nix par
 ### Comandos de despliegue
 
 ```bash
-git clone TODO_URL_DEL_REPO
+git clone https://github.com/pepinisillo/AudioLab.git
 cd AudioLab
 nano .env
 sudo docker compose up --build --scale worker=3 -d
