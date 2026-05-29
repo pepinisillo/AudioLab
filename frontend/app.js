@@ -730,13 +730,20 @@ const AudioLab = (() => {
 
     agregarLog("[interfaz] subiendo audio a S3");
 
-    const respuestaS3 = await fetch(firma.url, {
-      method: "POST",
-      body: formularioS3
-    });
+    let respuestaS3;
+
+    try {
+      respuestaS3 = await fetch(firma.url, {
+        method: "POST",
+        body: formularioS3
+      });
+    } catch (error) {
+      throw new Error(`no se pudo subir a S3; revisa CORS del bucket o conectividad: ${error.message}`);
+    }
 
     if (!respuestaS3.ok) {
-      throw new Error(`S3 respondió ${respuestaS3.status}`);
+      const detalle = await respuestaS3.text();
+      throw new Error(`S3 respondió ${respuestaS3.status}: ${detalle.slice(0, 240)}`);
     }
 
     return firma.s3_key;
