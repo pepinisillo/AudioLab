@@ -28,14 +28,15 @@ El sistema permite:
 
 | Función | Qué muestra | Captura |
 |---|---|---|
-| Pantalla principal | Drag & drop, selector de procesos y reproductor de onda |  
-| Trabajo actual | Varias tareas con estados y barras de progreso |  
-| Workers | 3 workers activos en logs/sistema |
-| Redis | Cola `cola:tareas` o claves `tarea:*` |
-| S3 | Carpetas `entradas/` y `resultados/` |
-| Docker | `docker compose up --scale worker=3` |
+| Pantalla principal | Drag & drop, selector de procesos y reproductor de onda | <img width="1920" height="497" alt="Screenshot_20260528_184729" src="https://github.com/user-attachments/assets/0790f84b-7eec-40e1-9876-4a84e9b33560" /> <img width="1920" height="1080" alt="Screenshot_20260528_184744" src="https://github.com/user-attachments/assets/4d79a21a-c22a-474b-8cc1-2e79a5aaf3d2" /> |
+| Trabajo actual | Varias tareas con estados y barras de progreso | <img width="1920" height="1080" alt="Screenshot_20260528_191220" src="https://github.com/user-attachments/assets/4c48b694-3b37-4293-8009-b90268b87a7e" /> |
+| Workers | 3 workers activos en logs/sistema | <img width="1920" height="1080" alt="Screenshot_20260528_191242" src="https://github.com/user-attachments/assets/b4954cdd-aacf-4011-8858-2e64d15d583e" /> |
+| Redis | Cola `cola:tareas` o claves `tarea:*` | <img width="499" height="269" alt="Screenshot_20260528_194803" src="https://github.com/user-attachments/assets/eacbeb30-15d2-4acb-896c-b7092e1c0fb6" /> |
+| S3 | Carpetas `entradas/` y `resultados/` | <img width="706" height="533" alt="Screenshot_20260528_193436" src="https://github.com/user-attachments/assets/fff1d755-a36b-4028-9ca3-867fe7f80280" /> |
+| Docker | `docker compose up --scale worker=3` |  <img width="836" height="256" alt="Screenshot_20260528_193839" src="https://github.com/user-attachments/assets/1a368f09-64f9-4432-a9b3-a65edd28d5cd" /> |
 
 ## Demo rápida
+
 
 ```bash
 sudo docker compose up --build --scale worker=3
