@@ -16,8 +16,7 @@ El sistema permite:
 
 | Evidencia | Enlace / archivo | 
 |---|---|
-| URL de funcionamiento | URL Video | 
-| Video mostrando tareas, workers, resultados y arquitectura | URL Video 5 a 8 min | 
+| URL de funcionamiento y mostrando tareas, workers, resultados y arquitectura| URL Video en Classroom | 
 | Repositorio GitHub | [`https://github.com/pepin/AudioLab`]() | 
 | Dockerfile backend | [`backend/Dockerfile`](backend/Dockerfile) | 
 | Dockerfile worker | [`worker/Dockerfile`](worker/Dockerfile) | 
